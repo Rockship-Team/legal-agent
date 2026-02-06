@@ -1,0 +1,38 @@
+{
+  "name": "specledger",
+  "version": "1.0.1",
+  "type": "module",
+  "bin": {
+    "specledger": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsdown --watch",
+    "build": "tsdown && cp -r src/init dist/init",
+    "prepublishOnly": "npm run build",
+    "typecheck": "tsc",
+    "clean": "rimraf .turbo node_modules dist"
+  },
+  "engines": {
+    "node": "^18 || >=20.19.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/specledger/specledger"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.11.0",
+    "figlet": "^1.8.1",
+    "mri": "^1.2.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "^2.93.3",
+    "@types/figlet": "^1.7.0",
+    "@types/node": "^25.0.10",
+    "tsdown": "^0.12.9",
+    "typescript": "^5.0.0"
+  }
+}

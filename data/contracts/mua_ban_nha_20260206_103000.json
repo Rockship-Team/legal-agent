@@ -1,0 +1,83 @@
+{
+  "contract_type": "mua_ban_nha",
+  "contract_type_vn": "Hợp đồng mua bán nhà ở",
+  "created_at": "2026-02-06T10:30:00",
+  "status": "draft",
+  "legal_references": [
+    "Điều 160, 163, 164, 165 Luật Nhà ở 2023 (27/2023/QH15)",
+    "Điều 27, 45 Luật Đất đai 2024",
+    "Điều 430-433 Bộ luật Dân sự 2015 (Mua bán tài sản)",
+    "Điều 503 Bộ luật Dân sự 2015 (Chuyển nhượng QSD đất)"
+  ],
+  "fields": {
+    "ben_ban": {
+      "ho_ten": "Nguyễn Văn A",
+      "ngay_sinh": "15/03/1980",
+      "cccd": "001080012345",
+      "ngay_cap_cccd": "20/06/2021",
+      "noi_cap_cccd": "Cục Cảnh sát ĐKQL cư trú và DLQG về dân cư",
+      "dia_chi_thuong_tru": "Số 10, ngõ 25, đường Láng Hạ, phường Láng Hạ, quận Đống Đa, TP. Hà Nội",
+      "so_dien_thoai": "0901234567"
+    },
+    "ben_mua": {
+      "ho_ten": "Trần Thị B",
+      "ngay_sinh": "22/08/1990",
+      "cccd": "036090067890",
+      "ngay_cap_cccd": "10/01/2022",
+      "noi_cap_cccd": "Cục Cảnh sát ĐKQL cư trú và DLQG về dân cư",
+      "dia_chi_thuong_tru": "Số 88, đường Nguyễn Trãi, phường Thượng Đình, quận Thanh Xuân, TP. Hà Nội",
+      "so_dien_thoai": "0987654321"
+    },
+    "nha_o": {
+      "dia_chi": "Số 45, đường Hoàng Cầu, phường Ô Chợ Dừa, quận Đống Đa, TP. Hà Nội",
+      "loai_nha": "Nhà ở riêng lẻ",
+      "so_tang": 4,
+      "dien_tich_dat": "60 m²",
+      "dien_tich_san_xay_dung": "200 m²",
+      "ket_cau": "Bê tông cốt thép, mái bằng",
+      "huong_nha": "Đông Nam",
+      "so_giay_chung_nhan": "BĐ 123456",
+      "ngay_cap_gcn": "15/09/2018",
+      "co_quan_cap": "Sở Tài nguyên và Môi trường TP. Hà Nội"
+    },
+    "gia_ban": {
+      "so_tien": 5500000000,
+      "so_tien_bang_chu": "Năm tỷ năm trăm triệu đồng",
+      "don_vi_tien": "VND"
+    },
+    "phuong_thuc_thanh_toan": {
+      "hinh_thuc": "Chuyển khoản ngân hàng",
+      "dot_1": {
+        "mo_ta": "Đặt cọc",
+        "so_tien": 550000000,
+        "so_tien_bang_chu": "Năm trăm năm mươi triệu đồng",
+        "thoi_han": "Ngay khi ký hợp đồng đặt cọc"
+      },
+      "dot_2": {
+        "mo_ta": "Thanh toán đợt 2",
+        "so_tien": 2750000000,
+        "so_tien_bang_chu": "Hai tỷ bảy trăm năm mươi triệu đồng",
+        "thoi_han": "Trong vòng 30 ngày kể từ ngày ký hợp đồng công chứng"
+      },
+      "dot_3": {
+        "mo_ta": "Thanh toán đợt cuối",
+        "so_tien": 2200000000,
+        "so_tien_bang_chu": "Hai tỷ hai trăm triệu đồng",
+        "thoi_han": "Sau khi hoàn tất sang tên Giấy chứng nhận"
+      }
+    },
+    "thoi_gian_ban_giao": "Trong vòng 15 ngày kể từ ngày Bên Mua thanh toán đợt 2",
+    "cam_ket_ben_ban": [
+      "Nhà ở thuộc quyền sở hữu hợp pháp, không có tranh chấp",
+      "Không nằm trong diện quy hoạch giải tỏa",
+      "Không bị kê biên để thi hành án",
+      "Không thế chấp hoặc bảo lãnh tại bất kỳ tổ chức tín dụng nào"
+    ],
+    "cam_ket_ben_mua": [
+      "Thanh toán đầy đủ và đúng hạn theo thỏa thuận",
+      "Chịu các chi phí liên quan đến sang tên, trước bạ"
+    ],
+    "phat_vi_pham": "8% giá trị hợp đồng",
+    "cong_chung_tai": "Văn phòng Công chứng Nguyễn Huệ, TP. Hà Nội"
+  }
+}

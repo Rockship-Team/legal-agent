@@ -1,0 +1,37 @@
+# .github/workflows/release.yml
+# name: Release
+
+# on:
+#   push:
+#     tags:
+#       - 'v*'
+
+# jobs:
+#   release:
+#     runs-on: self-hosted
+#     permissions:
+#       contents: write
+
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v4
+
+#       - name: Setup Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: 'lts/*'
+#           registry-url: 'https://registry.npmjs.org'
+
+#       - name: Setup Bun
+#         uses: oven-sh/setup-bun@v2
+
+#       - name: Install dependencies
+#         run: bun install
+
+#       - name: Build
+#         run: bun run build
+
+#       - name: Publish to npm
+#         run: npm publish --access public
+#         env:
+#           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

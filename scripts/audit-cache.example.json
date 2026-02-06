@@ -1,0 +1,300 @@
+{
+  "metadata": {
+    "project_name": "artifact-tracker-001",
+    "project_type": "monorepo",
+    "language": "go,typescript",
+    "framework": "none,deno",
+    "analyzed_at": "2026-01-20T14:30:00Z",
+    "total_loc": 8500,
+    "file_count": 45,
+    "scan_duration_seconds": 180
+  },
+  
+  "global_context": {
+    "architecture_style": "Modular Monorepo with SDK + API + CLI separation",
+    "primary_language": "Go (backend/SDK), TypeScript (edge functions)",
+    "state_management": "N/A (backend-focused project)",
+    "api_pattern": "REST via Supabase PostgREST + gRPC via Buf (proto/artifact/v1)",
+    "auth_pattern": "Supabase RLS policies (Row Level Security)",
+    "database": "PostgreSQL via Supabase (migrations in supabase/migrations/)",
+    "testing_approach": "Integration tests in tests/integration/ using Go test framework",
+    "common_patterns": [
+      "All SDK methods accept context.Context as first parameter",
+      "Database operations use prepared statements via Supabase client",
+      "Checkpoints form parent-child tree via parent_checkpoint_id",
+      "JSONB used for flexible data (affected_files, issue dependencies)"
+    ],
+    "tech_stack": {
+      "languages": ["Go 1.21+", "TypeScript (Deno)"],
+      "frameworks": ["Supabase Edge Functions", "Buf for protobuf"],
+      "databases": ["PostgreSQL (Supabase)"],
+      "tools": ["Make", "mise", "buf", "sqlc", "bd (beads issue tracker)"]
+    }
+  },
+  "modules": [
+    {
+      "id": "artifact-tracking",
+      "name": "Artifact Tracking System",
+      "description": "Manages file versioning and checkpoint history with parent-child relationships",
+      "type": "core-domain",
+      "paths": [
+        "pkg/sdk/artifact.go",
+        "pkg/sdk/checkpoint.go",
+        "pkg/sdk/client.go"
+      ],
+      "entry_point": "pkg/sdk/client.go:NewClient()",
+      "loc": 2100,
+      "file_count": 8,
+      "complexity": "high",
+      "priority": 1,
+      
+      "key_functions": [
+        {
+          "name": "CreateArtifact",
+          "signature": "func (c *Client) CreateArtifact(ctx context.Context, req *CreateArtifactRequest) (*Artifact, error)",
+          "file": "pkg/sdk/artifact.go",
+          "line": 45,
+          "purpose": "Create new artifact entry for a file path in a project",
+          "implementation_summary": "Validates file path, checks for duplicates, inserts into database, returns artifact with UUID"
+        },
+        {
+          "name": "GetArtifact",
+          "signature": "func (c *Client) GetArtifact(ctx context.Context, id string) (*Artifact, error)",
+          "file": "pkg/sdk/artifact.go",
+          "line": 89,
+          "purpose": "Retrieve artifact by ID with active checkpoint information",
+          "implementation_summary": "Queries database, joins with checkpoints table, returns artifact with active version"
+        },
+        {
+          "name": "CreateCheckpoint",
+          "signature": "func (c *Client) CreateCheckpoint(ctx context.Context, req *CreateCheckpointRequest) (*Checkpoint, error)",
+          "file": "pkg/sdk/checkpoint.go",
+          "line": 67,
+          "purpose": "Create new checkpoint for artifact at specific git commit",
+          "implementation_summary": "Links to parent checkpoint, stores git metadata, updates artifact active version"
+        },
+        {
+          "name": "GetCheckpointHistory",
+          "signature": "func (c *Client) GetCheckpointHistory(ctx context.Context, artifactID string) ([]*Checkpoint, error)",
+          "file": "pkg/sdk/checkpoint.go",
+          "line": 134,
+          "purpose": "Retrieve chronological history of checkpoints for an artifact",
+          "implementation_summary": "Walks parent_checkpoint_id chain recursively, returns ordered list"
+        },
+        {
+          "name": "GetCheckpointDiff",
+          "signature": "func (c *Client) GetCheckpointDiff(ctx context.Context, fromID, toID string) (*Diff, error)",
+          "file": "pkg/sdk/checkpoint.go",
+          "line": 178,
+          "purpose": "Calculate differences between two checkpoints",
+          "implementation_summary": "Fetches both checkpoints, compares git SHAs, returns file changes"
+        }
+      ],
+      
+      "data_models": [
+        {
+          "name": "Artifact",
+          "type": "struct",
+          "file": "pkg/sdk/artifact.go",
+          "line": 23,
+          "fields": [
+            "ID string `json:\"id\" db:\"id\"`",
+            "ProjectID string `json:\"project_id\" db:\"project_id\"`",
+            "FilePath string `json:\"file_path\" db:\"file_path\"`",
+            "FileType string `json:\"file_type\" db:\"file_type\"`",
+            "ActiveCheckpointID *string `json:\"active_checkpoint_id\" db:\"active_checkpoint_id\"`",
+            "ActiveGitHash *string `json:\"active_git_hash\" db:\"active_git_hash\"`",
+            "CreatedAt time.Time `json:\"created_at\" db:\"created_at\"`",
+            "UpdatedAt time.Time `json:\"updated_at\" db:\"updated_at\"`"
+          ],
+          "purpose": "Represents a tracked file in the system with its current active version"
+        },
+        {
+          "name": "Checkpoint",
+          "type": "struct",
+          "file": "pkg/sdk/checkpoint.go",
+          "line": 18,
+          "fields": [
+            "ID string `json:\"id\" db:\"id\"`",
+            "ChangeID *string `json:\"change_id\" db:\"change_id\"`",
+            "ParentCheckpointID *string `json:\"parent_checkpoint_id\" db:\"parent_checkpoint_id\"`",
+            "GitCommitSHA string `json:\"git_commit_sha\" db:\"git_commit_sha\"`",
+            "GitBranch string `json:\"git_branch\" db:\"git_branch\"`",
+            "Message string `json:\"message\" db:\"message\"`",
+            "AuthorName string `json:\"author_name\" db:\"author_name\"`",
+            "AuthorEmail string `json:\"author_email\" db:\"author_email\"`",
+            "AffectedFiles json.RawMessage `json:\"affected_files\" db:\"affected_files\"`",
+            "CreatedAt time.Time `json:\"created_at\" db:\"created_at\"`"
+          ],
+          "purpose": "Version snapshot of artifacts at a specific git commit, forming a tree structure via parent links"
+        }
+      ],
+      
+      "dependencies": {
+        "internal": [
+          "pkg/api/gen/artifact/v1"
+        ],
+        "external": [
+          "context",
+          "time",
+          "encoding/json",
+          "github.com/google/uuid"
+        ],
+        "calls_to": [
+          "supabase-client"
+        ],
+        "called_by": [
+          "cli-commands",
+          "api-handlers"
+        ]
+      },
+      
+      "api_contracts": [],
+      
+      "integration_points": [
+        "Supabase database (artifacts table)",
+        "Supabase database (checkpoints table)",
+        "Git metadata (commit SHA, author, message)"
+      ],
+      
+      "notes": [
+        "Core domain model - foundational for other modules",
+        "Checkpoint tree structure allows branching history",
+        "AffectedFiles stored as JSONB for multi-file commits"
+      ]
+    },
+    {
+      "id": "github-webhook",
+      "name": "GitHub Webhook Handler",
+      "description": "Receives GitHub push events and creates checkpoints in Supabase database",
+      "type": "integration",
+      "paths": [
+        "supabase/functions/github-webhook/index.ts"
+      ],
+      "entry_point": "supabase/functions/github-webhook/index.ts:serve()",
+      "loc": 940,
+      "file_count": 1,
+      "complexity": "high",
+      "priority": 1,
+      
+      "key_functions": [
+        {
+          "name": "serve",
+          "signature": "serve(async (req: Request) => Response)",
+          "file": "supabase/functions/github-webhook/index.ts",
+          "line": 395,
+          "purpose": "Main handler for incoming GitHub webhook POST requests",
+          "implementation_summary": "Validates signature, parses payload, finds project, creates checkpoints per commit"
+        },
+        {
+          "name": "syncBeadsIssues",
+          "signature": "async function syncBeadsIssues(supabase, project, commit, beadsFilePath, branch)",
+          "file": "supabase/functions/github-webhook/index.ts",
+          "line": 173,
+          "purpose": "Sync bd issues from .beads/issues.jsonl to Supabase with 3-priority spec detection",
+          "implementation_summary": "Detects spec from branch name → file path → labels, fetches JSONL from GitHub, upserts issues with dependencies"
+        },
+        {
+          "name": "ensureSpecExists",
+          "signature": "async function ensureSpecExists(supabase, project, filePath)",
+          "file": "supabase/functions/github-webhook/index.ts",
+          "line": 79,
+          "purpose": "Find or create spec from file path pattern (specs/001-xxx/)",
+          "implementation_summary": "Extracts spec ID from path, checks database, creates if missing"
+        },
+        {
+          "name": "verifySignature",
+          "signature": "async function verifySignature(payload, signature, secret)",
+          "file": "supabase/functions/github-webhook/index.ts",
+          "line": 50,
+          "purpose": "Verify GitHub webhook HMAC signature for security",
+          "implementation_summary": "Computes HMAC-SHA256, compares with x-hub-signature-256 header"
+        }
+      ],
+      
+      "data_models": [
+        {
+          "name": "GitHubPushEvent",
+          "type": "interface",
+          "file": "supabase/functions/github-webhook/index.ts",
+          "line": 15,
+          "fields": [
+            "ref: string",
+            "before: string",
+            "after: string",
+            "repository: { full_name, owner, name }",
+            "commits: Array<{ id, message, author, added, modified, removed, parents }>"
+          ],
+          "purpose": "Type definition for GitHub push webhook payload"
+        }
+      ],
+      
+      "dependencies": {
+        "internal": [],
+        "external": [
+          "https://deno.land/std@0.168.0/http/server.ts",
+          "https://esm.sh/@supabase/supabase-js@2",
+          "https://deno.land/std@0.168.0/crypto/mod.ts"
+        ],
+        "calls_to": [
+          "supabase-api",
+          "github-api"
+        ],
+        "called_by": [
+          "github-servers"
+        ]
+      },
+      
+      "api_contracts": [
+        {
+          "type": "webhook",
+          "endpoint": "POST /github-webhook",
+          "handler": "serve()",
+          "request": "GitHub push event JSON payload",
+          "response": "{ success: boolean, checkpoints_created: number }",
+          "headers": [
+            "x-hub-signature-256: HMAC signature",
+            "x-github-event: push|ping",
+            "x-github-delivery: UUID"
+          ]
+        }
+      ],
+      
+      "integration_points": [
+        "GitHub webhook events (push, ping)",
+        "Supabase database (projects, specs, changes, checkpoints, artifacts, bd_issues)",
+        "GitHub raw content API (fetch .beads/issues.jsonl)",
+        "Supabase Edge Functions runtime (Deno)"
+      ],
+      
+      "notes": [
+        "Handles both spec markdown changes and beads issue syncing",
+        "3-priority spec detection: branch name → file path → labels",
+        "Creates 1 checkpoint per commit with affected_files JSONB array",
+        "Skips duplicate checkpoints if already processed"
+      ]
+    }
+  ],
+  
+  "dependency_graph": {
+    "github-webhook": ["artifact-tracking", "supabase-client"],
+    "cli-commands": ["artifact-tracking", "config-management"],
+    "api-handlers": ["artifact-tracking"]
+  },
+  
+  "recommendations": {
+    "suggested_adoption_order": [
+      "1. artifact-tracking (foundation - no dependencies)",
+      "2. github-webhook (depends on artifact-tracking)",
+      "3. cli-commands (depends on artifact-tracking)"
+    ],
+    "high_priority_modules": [
+      "artifact-tracking",
+      "github-webhook"
+    ],
+    "warnings": [
+      "github-webhook has complex spec detection logic - needs detailed spec",
+      "checkpoint parent chain can become deep - needs performance testing spec"
+    ]
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "id": "rental_v1",
+  "template_type": "rental",
+  "name": "Hop dong thue nha",
+  "description": "Mau hop dong thue nha o theo Luat Nha o 2014",
+  "required_fields": [
+    {
+      "name": "landlord_name",
+      "label": "Ho ten ben cho thue",
+      "field_type": "text",
+      "required": true
+    },
+    {
+      "name": "landlord_id",
+      "label": "So CCCD ben cho thue",
+      "field_type": "text",
+      "required": true,
+      "validation": "^[0-9]{12}$"
+    },
+    {
+      "name": "landlord_address",
+      "label": "Dia chi ben cho thue",
+      "field_type": "address",
+      "required": true
+    },
+    {
+      "name": "tenant_name",
+      "label": "Ho ten ben thue",
+      "field_type": "text",
+      "required": true
+    },
+    {
+      "name": "tenant_id",
+      "label": "So CCCD ben thue",
+      "field_type": "text",
+      "required": true,
+      "validation": "^[0-9]{12}$"
+    },
+    {
+      "name": "tenant_address",
+      "label": "Dia chi ben thue",
+      "field_type": "address",
+      "required": true
+    },
+    {
+      "name": "property_address",
+      "label": "Dia chi nha cho thue",
+      "field_type": "address",
+      "required": true
+    },
+    {
+      "name": "monthly_rent",
+      "label": "Tien thue hang thang (VND)",
+      "field_type": "number",
+      "required": true
+    },
+    {
+      "name": "deposit",
+      "label": "Tien dat coc (VND)",
+      "field_type": "number",
+      "required": true
+    },
+    {
+      "name": "start_date",
+      "label": "Ngay bat dau thue",
+      "field_type": "date",
+      "required": true
+    },
+    {
+      "name": "duration_months",
+      "label": "Thoi han thue (thang)",
+      "field_type": "number",
+      "required": true,
+      "default_value": "12"
+    }
+  ],
+  "legal_references": [
+    "luat_nha_o_2014_dieu_121",
+    "luat_nha_o_2014_dieu_122",
+    "luat_nha_o_2014_dieu_129",
+    "luat_nha_o_2014_dieu_131"
+  ],
+  "version": 1
+}

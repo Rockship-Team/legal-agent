@@ -1,0 +1,71 @@
+{
+  "contract_type": "land_sale",
+  "contract_type_vn": "Hợp đồng mua bán đất",
+  "created_at": "2026-02-06T10:30:00",
+  "status": "draft",
+  "legal_references": [
+    "Điều 45 Luật Đất đai 2024 - Điều kiện chuyển nhượng quyền sử dụng đất",
+    "Điều 27 Luật Đất đai 2024 - Yêu cầu công chứng/chứng thực",
+    "Bộ luật Dân sự 2015 - Quy định chung về hợp đồng"
+  ],
+  "fields": {
+    "seller": {
+      "full_name": "Nguyễn Văn A",
+      "date_of_birth": "20/11/2001",
+      "id_number": "001201012345",
+      "id_issue_date": "15/01/2020",
+      "id_issue_place": "Cục Cảnh sát ĐKQL cư trú và DLQG về dân cư",
+      "address": "123 Đường Lê Lợi, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh",
+      "phone": "0901234567"
+    },
+    "buyer": {
+      "full_name": "Trần Thị B",
+      "date_of_birth": "15/06/1995",
+      "id_number": "079195054321",
+      "id_issue_date": "20/03/2021",
+      "id_issue_place": "Cục Cảnh sát ĐKQL cư trú và DLQG về dân cư",
+      "address": "456 Đường Nguyễn Huệ, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh",
+      "phone": "0912345678"
+    },
+    "land": {
+      "parcel_number": "150",
+      "map_sheet_number": "25",
+      "area_m2": 100,
+      "address": "789 Đường Trần Hưng Đạo, Phường 7, Quận 5, TP. Hồ Chí Minh",
+      "land_use_purpose": "Đất ở tại đô thị",
+      "certificate_number": "BT 123456",
+      "certificate_issue_date": "10/05/2018",
+      "certificate_issuer": "UBND TP. Hồ Chí Minh"
+    },
+    "transaction": {
+      "price_vnd": 5000000000,
+      "price_in_words": "Năm tỷ đồng",
+      "deposit_vnd": 500000000,
+      "deposit_in_words": "Năm trăm triệu đồng",
+      "payment_schedule": [
+        {
+          "phase": 1,
+          "description": "Đặt cọc",
+          "amount_vnd": 500000000,
+          "due_date": "Ngày ký hợp đồng đặt cọc"
+        },
+        {
+          "phase": 2,
+          "description": "Thanh toán đợt 2",
+          "amount_vnd": 2000000000,
+          "due_date": "Ngày công chứng hợp đồng chuyển nhượng"
+        },
+        {
+          "phase": 3,
+          "description": "Thanh toán đợt 3 (cuối cùng)",
+          "amount_vnd": 2500000000,
+          "due_date": "Ngày bàn giao Giấy chứng nhận quyền sử dụng đất"
+        }
+      ]
+    },
+    "handover": {
+      "land_handover_date": "Trong vòng 30 ngày kể từ ngày công chứng",
+      "certificate_handover_date": "Trong vòng 60 ngày kể từ ngày công chứng"
+    }
+  }
+}

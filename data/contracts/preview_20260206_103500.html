@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Xem trước: Hợp đồng mua bán đất</title>
+    <style>
+        body {
+            font-family: 'Times New Roman', serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px;
+            line-height: 1.8;
+            background: #f5f5f5;
+        }
+        .contract {
+            background: white;
+            padding: 60px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header { text-align: center; margin-bottom: 30px; }
+        .header div { margin: 5px 0; }
+        .title {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 30px 0;
+            text-align: center;
+            text-transform: uppercase;
+            color: #1a5f7a;
+        }
+        .contract-number {
+            text-align: center;
+            font-style: italic;
+            margin-bottom: 30px;
+        }
+        .section { margin: 25px 0; }
+        .section-title {
+            font-weight: bold;
+            color: #1a5f7a;
+            border-bottom: 2px solid #1a5f7a;
+            padding-bottom: 8px;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+        table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+        td { padding: 10px 12px; border: 1px solid #ddd; }
+        td:first-child { width: 35%; font-weight: bold; background: #f8f9fa; }
+        .legal-basis {
+            background: #e8f4f8;
+            padding: 20px;
+            border-left: 4px solid #1a5f7a;
+            margin: 30px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        .legal-basis ul { margin: 10px 0; padding-left: 20px; }
+        .legal-basis li { margin: 5px 0; }
+        .article {
+            margin: 20px 0;
+            padding: 15px;
+            background: #fafafa;
+            border-radius: 5px;
+        }
+        .article-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .payment-table td:nth-child(2) { text-align: right; }
+        .signature {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 60px;
+            padding-top: 30px;
+            border-top: 1px dashed #ccc;
+        }
+        .signature-box {
+            width: 45%;
+            text-align: center;
+            padding: 20px;
+        }
+        .signature-box strong { font-size: 16px; }
+        .signature-line {
+            margin-top: 80px;
+            border-top: 1px solid #333;
+            padding-top: 5px;
+        }
+        .disclaimer {
+            color: #666;
+            font-size: 12px;
+            margin-top: 40px;
+            padding: 20px;
+            border: 2px dashed #ffc107;
+            background: #fff9e6;
+            border-radius: 8px;
+        }
+        .disclaimer strong { color: #e65100; }
+        .status-badge {
+            display: inline-block;
+            background: #ffc107;
+            color: #333;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        .highlight { background: #fff3cd; padding: 2px 5px; }
+        @media print {
+            .no-print { display: none; }
+            body { background: white; }
+            .contract { box-shadow: none; padding: 20px; }
+        }
+        .btn {
+            background: #1a5f7a;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 5px;
+            margin: 5px;
+        }
+        .btn:hover { background: #145069; }
+        .btn-secondary {
+            background: #6c757d;
+        }
+        .btn-secondary:hover { background: #545b62; }
+    </style>
+</head>
+<body>
+    <div class="contract">
+        <div class="header">
+            <div style="font-size: 14px;">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</div>
+            <div style="font-size: 16px;"><strong>Độc lập - Tự do - Hạnh phúc</strong></div>
+            <div style="font-size: 20px;">---oOo---</div>
+        </div>
+
+        <div style="text-align: center;">
+            <span class="status-badge">BẢN NHÁP</span>
+        </div>
+
+        <div class="title">HỢP ĐỒNG CHUYỂN NHƯỢNG QUYỀN SỬ DỤNG ĐẤT</div>
+
+        <div class="contract-number">
+            Số: ........./HĐCN<br>
+            Ngày tạo: 06/02/2026
+        </div>
+
+        <div class="legal-basis">
+            <strong>📜 CĂN CỨ PHÁP LÝ:</strong>
+            <ul>
+                <li>Điều 45 Luật Đất đai 2024 - Điều kiện chuyển nhượng quyền sử dụng đất</li>
+                <li>Điều 27 Luật Đất đai 2024 - Yêu cầu công chứng/chứng thực</li>
+                <li>Bộ luật Dân sự 2015 - Quy định chung về hợp đồng</li>
+            </ul>
+        </div>
+
+        <p style="text-align: justify;">
+            Hôm nay, ngày ..... tháng ..... năm 2026, tại .....................................................<br>
+            Chúng tôi gồm có:
+        </p>
+
+        <div class="section">
+            <div class="section-title">BÊN CHUYỂN NHƯỢNG (BÊN A)</div>
+            <table>
+                <tr>
+                    <td>Họ và tên</td>
+                    <td><strong>NGUYỄN VĂN A</strong></td>
+                </tr>
+                <tr>
+                    <td>Ngày sinh</td>
+                    <td>20/11/2001</td>
+                </tr>
+                <tr>
+                    <td>Số CCCD</td>
+                    <td>001201012345</td>
+                </tr>
+                <tr>
+                    <td>Ngày cấp</td>
+                    <td>15/01/2020</td>
+                </tr>
+                <tr>
+                    <td>Nơi cấp</td>
+                    <td>Cục Cảnh sát ĐKQL cư trú và DLQG về dân cư</td>
+                </tr>
+                <tr>
+                    <td>Địa chỉ thường trú</td>
+                    <td>123 Đường Lê Lợi, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh</td>
+                </tr>
+                <tr>
+                    <td>Điện thoại</td>
+                    <td>0901234567</td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="section">
+            <div class="section-title">BÊN NHẬN CHUYỂN NHƯỢNG (BÊN B)</div>
+            <table>
+                <tr>
+                    <td>Họ và tên</td>
+                    <td><strong>TRẦN THỊ B</strong></td>
+                </tr>
+                <tr>
+                    <td>Ngày sinh</td>
+                    <td>15/06/1995</td>
+                </tr>
+                <tr>
+                    <td>Số CCCD</td>
+                    <td>079195054321</td>
+                </tr>
+                <tr>
+                    <td>Ngày cấp</td>
+                    <td>20/03/2021</td>
+                </tr>
+                <tr>
+                    <td>Nơi cấp</td>
+                    <td>Cục Cảnh sát ĐKQL cư trú và DLQG về dân cư</td>
+                </tr>
+                <tr>
+                    <td>Địa chỉ thường trú</td>
+                    <td>456 Đường Nguyễn Huệ, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh</td>
+                </tr>
+                <tr>
+                    <td>Điện thoại</td>
+                    <td>0912345678</td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="section">
+            <div class="section-title">THÔNG TIN THỬA ĐẤT CHUYỂN NHƯỢNG</div>
+            <table>
+                <tr>
+                    <td>Thửa đất số</td>
+                    <td><strong>150</strong></td>
+                </tr>
+                <tr>
+                    <td>Tờ bản đồ số</td>
+                    <td>25</td>
+                </tr>
+                <tr>
+                    <td>Diện tích</td>
+                    <td><strong>100 m²</strong> (Một trăm mét vuông)</td>
+                </tr>
+                <tr>
+                    <td>Địa chỉ thửa đất</td>
+                    <td>789 Đường Trần Hưng Đạo, Phường 7, Quận 5, TP. Hồ Chí Minh</td>
+                </tr>
+                <tr>
+                    <td>Mục đích sử dụng</td>
+                    <td>Đất ở tại đô thị</td>
+                </tr>
+                <tr>
+                    <td>Số Giấy chứng nhận</td>
+                    <td><strong>BT 123456</strong></td>
+                </tr>
+                <tr>
+                    <td>Ngày cấp GCN</td>
+                    <td>10/05/2018</td>
+                </tr>
+                <tr>
+                    <td>Cơ quan cấp</td>
+                    <td>UBND TP. Hồ Chí Minh</td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="section">
+            <div class="section-title">GIÁ CHUYỂN NHƯỢNG VÀ PHƯƠNG THỨC THANH TOÁN</div>
+            <table>
+                <tr>
+                    <td>Giá chuyển nhượng</td>
+                    <td><strong class="highlight">5.000.000.000 VNĐ</strong><br>(Năm tỷ đồng)</td>
+                </tr>
+                <tr>
+                    <td>Tiền đặt cọc</td>
+                    <td><strong>500.000.000 VNĐ</strong><br>(Năm trăm triệu đồng)</td>
+                </tr>
+            </table>
+
+            <p style="margin-top: 20px;"><strong>Lịch thanh toán:</strong></p>
+            <table class="payment-table">
+                <tr style="background: #1a5f7a; color: white;">
+                    <td style="background: #1a5f7a;"><strong>Đợt</strong></td>
+                    <td style="text-align: right;"><strong>Số tiền</strong></td>
+                    <td><strong>Thời điểm</strong></td>
+                </tr>
+                <tr>
+                    <td style="background: white;">Đợt 1 - Đặt cọc</td>
+                    <td>500.000.000 VNĐ</td>
+                    <td>Ngày ký hợp đồng đặt cọc</td>
+                </tr>
+                <tr>
+                    <td style="background: white;">Đợt 2</td>
+                    <td>2.000.000.000 VNĐ</td>
+                    <td>Ngày công chứng hợp đồng chuyển nhượng</td>
+                </tr>
+                <tr>
+                    <td style="background: white;">Đợt 3 (Cuối cùng)</td>
+                    <td>2.500.000.000 VNĐ</td>
+                    <td>Ngày bàn giao Giấy chứng nhận quyền sử dụng đất</td>
+                </tr>
+                <tr style="background: #e8f4f8;">
+                    <td style="background: #e8f4f8;"><strong>TỔNG CỘNG</strong></td>
+                    <td><strong>5.000.000.000 VNĐ</strong></td>
+                    <td></td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="section">
+            <div class="section-title">THỜI HẠN BÀN GIAO</div>
+            <table>
+                <tr>
+                    <td>Bàn giao thực tế thửa đất</td>
+                    <td>Trong vòng 30 ngày kể từ ngày công chứng</td>
+                </tr>
+                <tr>
+                    <td>Bàn giao Giấy chứng nhận</td>
+                    <td>Trong vòng 60 ngày kể từ ngày công chứng</td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="article">
+            <div class="article-title">ĐIỀU 1: QUYỀN VÀ NGHĨA VỤ CỦA BÊN A</div>
+            <p>1.1. Bên A cam kết quyền sử dụng đất nêu trên thuộc quyền sử dụng hợp pháp của Bên A, không có tranh chấp, không bị kê biên để thi hành án.</p>
+            <p>1.2. Bên A có nghĩa vụ bàn giao đất và các giấy tờ liên quan cho Bên B theo đúng thời hạn quy định.</p>
+            <p>1.3. Bên A có nghĩa vụ phối hợp với Bên B thực hiện các thủ tục sang tên quyền sử dụng đất tại cơ quan có thẩm quyền.</p>
+        </div>
+
+        <div class="article">
+            <div class="article-title">ĐIỀU 2: QUYỀN VÀ NGHĨA VỤ CỦA BÊN B</div>
+            <p>2.1. Bên B có nghĩa vụ thanh toán đầy đủ và đúng hạn các khoản tiền theo thỏa thuận.</p>
+            <p>2.2. Bên B được quyền nhận bàn giao quyền sử dụng đất theo đúng thời hạn quy định.</p>
+            <p>2.3. Bên B có nghĩa vụ thực hiện các thủ tục đăng ký biến động quyền sử dụng đất theo quy định pháp luật.</p>
+        </div>
+
+        <div class="article">
+            <div class="article-title">ĐIỀU 3: PHƯƠNG THỨC GIẢI QUYẾT TRANH CHẤP</div>
+            <p>Mọi tranh chấp phát sinh từ hoặc liên quan đến Hợp đồng này sẽ được giải quyết thông qua thương lượng, hòa giải. Trường hợp không thương lượng, hòa giải được thì đưa ra Tòa án nhân dân có thẩm quyền giải quyết.</p>
+        </div>
+
+        <div class="article">
+            <div class="article-title">ĐIỀU 4: CAM KẾT CHUNG</div>
+            <p>Hai bên cam kết thực hiện đúng và đầy đủ các điều khoản đã thỏa thuận trong Hợp đồng này. Bên nào vi phạm sẽ phải bồi thường thiệt hại cho bên kia theo quy định của pháp luật.</p>
+            <p>Hợp đồng này được lập thành 04 (bốn) bản có giá trị pháp lý như nhau, mỗi bên giữ 01 bản, 01 bản lưu tại cơ quan công chứng và 01 bản nộp tại cơ quan đăng ký đất đai.</p>
+        </div>
+
+        <div class="signature">
+            <div class="signature-box">
+                <strong>BÊN CHUYỂN NHƯỢNG (BÊN A)</strong><br>
+                <em>(Ký và ghi rõ họ tên)</em>
+                <div class="signature-line">
+                    Nguyễn Văn A
+                </div>
+            </div>
+            <div class="signature-box">
+                <strong>BÊN NHẬN CHUYỂN NHƯỢNG (BÊN B)</strong><br>
+                <em>(Ký và ghi rõ họ tên)</em>
+                <div class="signature-line">
+                    Trần Thị B
+                </div>
+            </div>
+        </div>
+
+        <div class="disclaimer">
+            <strong>⚠️ LƯU Ý QUAN TRỌNG:</strong><br>
+            Đây chỉ là <strong>BẢN XEM TRƯỚC</strong> mang tính chất tham khảo.<br>
+            • Vui lòng kiểm tra kỹ thông tin trước khi sử dụng chính thức.<br>
+            • Hợp đồng chuyển nhượng quyền sử dụng đất <strong>BẮT BUỘC phải công chứng hoặc chứng thực</strong> theo Điều 27 Luật Đất đai 2024.<br>
+            • Không thay thế tư vấn pháp lý chuyên nghiệp.
+        </div>
+
+        <div class="no-print" style="text-align: center; margin-top: 30px;">
+            <button class="btn" onclick="window.print()">🖨️ In hợp đồng</button>
+            <button class="btn btn-secondary" onclick="window.close()">Đóng</button>
+        </div>
+    </div>
+</body>
+</html>

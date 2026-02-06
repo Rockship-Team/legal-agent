@@ -1,0 +1,64 @@
+{
+  "id": "service_v1",
+  "template_type": "service",
+  "name": "Hop dong dich vu",
+  "description": "Mau hop dong cung cap dich vu theo Bo luat Dan su 2015",
+  "required_fields": [
+    {
+      "name": "provider_name",
+      "label": "Ho ten/Ten cong ty ben cung cap",
+      "field_type": "text",
+      "required": true
+    },
+    {
+      "name": "provider_id",
+      "label": "So CCCD/Ma so thue",
+      "field_type": "text",
+      "required": true
+    },
+    {
+      "name": "provider_address",
+      "label": "Dia chi ben cung cap",
+      "field_type": "address",
+      "required": true
+    },
+    {
+      "name": "client_name",
+      "label": "Ho ten/Ten cong ty ben su dung",
+      "field_type": "text",
+      "required": true
+    },
+    {
+      "name": "client_id",
+      "label": "So CCCD/Ma so thue",
+      "field_type": "text",
+      "required": true
+    },
+    {
+      "name": "client_address",
+      "label": "Dia chi ben su dung",
+      "field_type": "address",
+      "required": true
+    },
+    {
+      "name": "service_description",
+      "label": "Mo ta dich vu",
+      "field_type": "text",
+      "required": true
+    },
+    {
+      "name": "service_fee",
+      "label": "Phi dich vu (VND)",
+      "field_type": "number",
+      "required": true
+    },
+    {
+      "name": "duration",
+      "label": "Thoi han hop dong",
+      "field_type": "text",
+      "required": true
+    }
+  ],
+  "legal_references": [],
+  "version": 1
+}
