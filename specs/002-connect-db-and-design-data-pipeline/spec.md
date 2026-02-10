@@ -279,16 +279,17 @@ CREATE TABLE articles (
   chapter TEXT,                         -- Chương
   section TEXT,                         -- Mục
   part TEXT,                            -- Phần
-  embedding VECTOR(384),               -- pgvector embedding
+  embedding VECTOR(768),               -- vietnamese-bi-encoder embedding
   content_hash TEXT,                    -- Hash để detect changes
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now(),
   UNIQUE(document_id, article_number)
 );
 
--- Index cho semantic search
-CREATE INDEX ON articles USING ivfflat (embedding vector_cosine_ops)
-  WITH (lists = 100);
+-- HNSW index cho semantic search (self-updating, không cần rebuild)
+CREATE INDEX articles_embedding_idx ON articles
+  USING hnsw (embedding vector_cosine_ops)
+  WITH (m = 16, ef_construction = 64);
 ```
 
 #### Bảng `document_relations` — Quan hệ giữa các văn bản
@@ -401,8 +402,9 @@ generated-contracts/
    - Extract metadata từ header table
 
 4. Rate limiting:
-   - 2-3 seconds giữa mỗi request
+   - 3-5 seconds + random 0-2s jitter giữa mỗi request
    - Max 20 pages per run
+   - Playwright + stealth plugin (Cloudflare active)
    - Respect robots.txt
 ```
 
@@ -495,7 +497,7 @@ legal_chatbot/
 |-----------|-----------|-------------|
 | Cloud DB | Supabase (PostgreSQL) | Free tier tốt, có pgvector, Storage, Realtime |
 | Vector Search | pgvector (Supabase) | Tích hợp sẵn, không cần service riêng |
-| Embeddings | sentence-transformers `paraphrase-multilingual-MiniLM-L12-v2` | Hỗ trợ tiếng Việt, dim=384 |
+| Embeddings | sentence-transformers `bkai-foundation-models/vietnamese-bi-encoder` | Legal-trained, PhoBERT backbone, dim=768 |
 | Python SDK | `supabase-py` | Official SDK |
 | Scheduler | `APScheduler` hoặc `schedule` | Lightweight, chạy trong process |
 | Hashing | `hashlib` (SHA-256) | Built-in Python, detect changes |
@@ -504,9 +506,9 @@ legal_chatbot/
 
 ```
 supabase>=2.0.0
-vecs>=0.4.0              # Supabase vector operations
 sentence-transformers>=2.2.0
-apscheduler>=3.10.0      # hoặc schedule>=1.2.0
+playwright-stealth>=1.0.0    # Cloudflare bypass
+apscheduler>=3.10.0
 ```
 
 ---
@@ -528,10 +530,10 @@ SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIs...   # service role key (for admin ops
 
 # New - Pipeline
 PIPELINE_CRAWL_INTERVAL=168                    # hours (default 7 days)
-PIPELINE_RATE_LIMIT=3                          # seconds between requests
+PIPELINE_RATE_LIMIT=4                          # seconds between requests (3-5 range)
 PIPELINE_MAX_PAGES=50                          # max pages per category per run
-EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
-EMBEDDING_DIMENSION=384
+EMBEDDING_MODEL=bkai-foundation-models/vietnamese-bi-encoder
+EMBEDDING_DIMENSION=768
 ```
 
 ---
