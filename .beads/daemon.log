@@ -1018,3 +1018,310 @@ time=2026-02-05T15:22:48.959+07:00 level=INFO msg="daemon already running (lock 
 time=2026-02-05T15:22:49.065+07:00 level=INFO msg="Import triggered by file change"
 time=2026-02-05T15:22:49.068+07:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
 time=2026-02-05T15:22:49.069+07:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-10T11:09:50.847+07:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-02-10T11:09:50.853+07:00 level=INFO msg="using database" path=C:\Users\ADMIN\chatbot\.beads\beads.db
+time=2026-02-10T11:09:50.950+07:00 level=INFO msg="database opened" path=C:\Users\ADMIN\chatbot\.beads\beads.db backend=sqlite freshness_checking=true
+time=2026-02-10T11:09:50.950+07:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-02-10T11:09:50.950+07:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads\\.gitignore: The system cannot find the path specified."
+time=2026-02-10T11:09:50.970+07:00 level=ERROR msg="repository fingerprint validation failed" error="\nDATABASE MISMATCH DETECTED!\n\nThis database belongs to a different repository:\n  Database repo ID:  8db8976d\n  Current repo ID:   3019f13a\n\nThis usually means:\n  1. You copied a .beads directory from another repo (don't do this!)\n  2. Git remote URL changed (run 'bd migrate --update-repo-id')\n  3. Database corruption\n  4. bd was upgraded and URL canonicalization changed\n\n⚠️  CRITICAL: This mismatch can cause beads to incorrectly delete issues during sync!\n   The git-history-backfill mechanism may treat your local issues as deleted\n   because they don't exist in the remote repository's history.\n\nSolutions:\n  - If remote URL changed: bd migrate --update-repo-id\n  - If bd was upgraded: bd migrate --update-repo-id\n  - If wrong database: rm -rf .beads && bd init\n  - If correct database: BEADS_IGNORE_REPO_MISMATCH=1 bd daemon\n    (Warning: This can cause data corruption and unwanted deletions across clones!)\n"
+time=2026-02-10T11:10:08.930+07:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-02-10T11:10:08.931+07:00 level=INFO msg="using database" path=C:\Users\ADMIN\chatbot\.beads\beads.db
+time=2026-02-10T11:10:08.982+07:00 level=INFO msg="database opened" path=C:\Users\ADMIN\chatbot\.beads\beads.db backend=sqlite freshness_checking=true
+time=2026-02-10T11:10:08.982+07:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-02-10T11:10:08.982+07:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads\\.gitignore: The system cannot find the path specified."
+time=2026-02-10T11:10:09.001+07:00 level=ERROR msg="repository fingerprint validation failed" error="\nDATABASE MISMATCH DETECTED!\n\nThis database belongs to a different repository:\n  Database repo ID:  8db8976d\n  Current repo ID:   3019f13a\n\nThis usually means:\n  1. You copied a .beads directory from another repo (don't do this!)\n  2. Git remote URL changed (run 'bd migrate --update-repo-id')\n  3. Database corruption\n  4. bd was upgraded and URL canonicalization changed\n\n⚠️  CRITICAL: This mismatch can cause beads to incorrectly delete issues during sync!\n   The git-history-backfill mechanism may treat your local issues as deleted\n   because they don't exist in the remote repository's history.\n\nSolutions:\n  - If remote URL changed: bd migrate --update-repo-id\n  - If bd was upgraded: bd migrate --update-repo-id\n  - If wrong database: rm -rf .beads && bd init\n  - If correct database: BEADS_IGNORE_REPO_MISMATCH=1 bd daemon\n    (Warning: This can cause data corruption and unwanted deletions across clones!)\n"
+time=2026-02-10T11:10:20.954+07:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-02-10T11:10:20.955+07:00 level=INFO msg="using database" path=C:\Users\ADMIN\chatbot\.beads\beads.db
+time=2026-02-10T11:10:21.008+07:00 level=INFO msg="database opened" path=C:\Users\ADMIN\chatbot\.beads\beads.db backend=sqlite freshness_checking=true
+time=2026-02-10T11:10:21.008+07:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-02-10T11:10:21.008+07:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads\\.gitignore: The system cannot find the path specified."
+time=2026-02-10T11:10:21.029+07:00 level=ERROR msg="repository fingerprint validation failed" error="\nDATABASE MISMATCH DETECTED!\n\nThis database belongs to a different repository:\n  Database repo ID:  8db8976d\n  Current repo ID:   3019f13a\n\nThis usually means:\n  1. You copied a .beads directory from another repo (don't do this!)\n  2. Git remote URL changed (run 'bd migrate --update-repo-id')\n  3. Database corruption\n  4. bd was upgraded and URL canonicalization changed\n\n⚠️  CRITICAL: This mismatch can cause beads to incorrectly delete issues during sync!\n   The git-history-backfill mechanism may treat your local issues as deleted\n   because they don't exist in the remote repository's history.\n\nSolutions:\n  - If remote URL changed: bd migrate --update-repo-id\n  - If bd was upgraded: bd migrate --update-repo-id\n  - If wrong database: rm -rf .beads && bd init\n  - If correct database: BEADS_IGNORE_REPO_MISMATCH=1 bd daemon\n    (Warning: This can cause data corruption and unwanted deletions across clones!)\n"
+time=2026-02-10T11:10:34.536+07:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-02-10T11:10:34.537+07:00 level=INFO msg="using database" path=C:\Users\ADMIN\chatbot\.beads\beads.db
+time=2026-02-10T11:10:34.583+07:00 level=INFO msg="database opened" path=C:\Users\ADMIN\chatbot\.beads\beads.db backend=sqlite freshness_checking=true
+time=2026-02-10T11:10:34.583+07:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-02-10T11:10:34.583+07:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads\\.gitignore: The system cannot find the path specified."
+time=2026-02-10T11:10:34.599+07:00 level=INFO msg="Repository fingerprint validated: %s" !BADKEY=3019f13a
+time=2026-02-10T11:10:34.600+07:00 level=INFO msg="starting RPC server" socket=C:\Users\ADMIN\chatbot\.beads\bd.sock
+time=2026-02-10T11:10:34.603+07:00 level=INFO msg="RPC server ready (socket listening)"
+time=2026-02-10T11:10:34.612+07:00 level=INFO msg="registered in global registry"
+time=2026-02-10T11:10:34.613+07:00 level=INFO msg="Starting %s..." !BADKEY="sync cycle"
+time=2026-02-10T11:10:34.643+07:00 level=INFO msg="Exported to JSONL"
+time=2026-02-10T11:10:36.556+07:00 level=INFO msg="Pulled from remote"
+time=2026-02-10T11:10:36.597+07:00 level=INFO msg="Imported from JSONL"
+time=2026-02-10T11:10:36.635+07:00 level=INFO msg="Sync cycle complete"
+time=2026-02-10T11:10:36.635+07:00 level=INFO msg="monitoring parent process" pid=0
+time=2026-02-10T11:10:36.635+07:00 level=INFO msg="using event-driven mode"
+time=2026-02-10T11:10:36.637+07:00 level=INFO msg="Auto-pull disabled: use 'git pull' manually to sync remote changes"
+time=2026-02-10T11:10:36.637+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-m3x
+time=2026-02-10T11:10:37.138+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:10:37.140+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:10:37.161+07:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-10T11:10:37.165+07:00 level=INFO msg="Exported to JSONL"
+time=2026-02-10T11:10:37.165+07:00 level=INFO msg="Export complete"
+time=2026-02-10T11:10:37.211+07:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-10T11:10:37.214+07:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-10T11:10:37.265+07:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-10T11:10:37.265+07:00 level=INFO msg="JSONL file created: %s" !BADKEY=C:\Users\ADMIN\chatbot\.beads\issues.jsonl
+time=2026-02-10T11:10:38.265+07:00 level=INFO msg="Import triggered by file change"
+time=2026-02-10T11:10:38.267+07:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-10T11:10:38.269+07:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-10T11:10:38.289+07:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=C:\Users\ADMIN\chatbot\.beads\issues.jsonl
+time=2026-02-10T11:10:38.289+07:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-10T11:10:38.289+07:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-10T11:10:40.261+07:00 level=INFO msg="Pulled from remote"
+time=2026-02-10T11:10:40.280+07:00 level=INFO msg="Imported from JSONL"
+time=2026-02-10T11:10:40.281+07:00 level=INFO msg="Auto-import complete"
+time=2026-02-10T11:10:41.576+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-4m1
+time=2026-02-10T11:10:42.077+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:10:42.077+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:10:42.081+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:10:53.638+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-b0j
+time=2026-02-10T11:10:53.868+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-wsi
+time=2026-02-10T11:10:54.368+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:10:54.370+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:10:54.372+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:11:11.354+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-3mo
+time=2026-02-10T11:11:11.854+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:11:11.854+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:11:11.855+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:11:20.294+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-3la
+time=2026-02-10T11:11:20.794+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:11:20.794+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:11:20.795+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:11:32.924+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-pfr
+time=2026-02-10T11:11:33.424+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:11:33.427+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:11:33.427+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:11:43.939+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-42t
+time=2026-02-10T11:11:44.440+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:11:44.441+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:11:44.443+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:11:54.386+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-cut
+time=2026-02-10T11:11:54.886+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:11:54.887+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:11:54.887+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:12:04.065+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-l8c
+time=2026-02-10T11:12:04.565+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:12:04.565+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:12:04.566+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:12:11.980+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-mbp
+time=2026-02-10T11:12:12.481+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:12:12.482+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:12:12.484+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:12:19.397+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-v0a
+time=2026-02-10T11:12:19.897+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:12:19.898+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:12:19.898+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:17:21.425+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-3hv
+time=2026-02-10T11:17:21.929+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:17:21.930+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:17:21.931+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:17:23.039+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-lwh
+time=2026-02-10T11:17:23.540+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:17:23.540+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:17:23.541+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:17:24.513+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-80j
+time=2026-02-10T11:17:25.013+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:17:25.015+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:17:25.019+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:17:26.003+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-8ai
+time=2026-02-10T11:17:26.503+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:17:26.504+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:17:26.509+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:17:27.469+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-hbt
+time=2026-02-10T11:17:27.970+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:17:27.970+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:17:27.972+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:17:37.302+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-4sx
+time=2026-02-10T11:17:37.802+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:17:37.813+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:17:37.814+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:17:44.403+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-m2e
+time=2026-02-10T11:17:44.904+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:17:44.905+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:17:44.908+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:17:48.122+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-ua0
+time=2026-02-10T11:17:48.623+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:17:48.623+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:17:48.624+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:17:51.933+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-k5b
+time=2026-02-10T11:17:52.433+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:17:52.434+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:17:52.437+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:17:57.685+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-dp9
+time=2026-02-10T11:17:58.186+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:17:58.187+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:17:58.190+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:18:00.682+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-kzy
+time=2026-02-10T11:18:01.183+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:18:01.184+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:18:01.187+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:18:08.740+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-1xb
+time=2026-02-10T11:18:09.241+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:18:09.242+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:18:09.245+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:18:15.266+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-70w
+time=2026-02-10T11:18:15.766+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:18:15.766+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:18:15.767+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:18:18.304+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-9z4
+time=2026-02-10T11:18:18.804+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:18:18.806+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:18:18.807+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:18:21.061+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-b1l
+time=2026-02-10T11:18:21.561+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:18:21.561+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:18:21.562+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:18:25.162+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-v7m
+time=2026-02-10T11:18:25.663+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:18:25.664+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:18:25.668+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:18:34.033+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-w4o
+time=2026-02-10T11:18:34.534+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:18:34.535+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:18:34.537+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:18:40.609+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-57z
+time=2026-02-10T11:18:41.109+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:18:41.109+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:18:41.111+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:18:43.876+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-gd2
+time=2026-02-10T11:18:44.376+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:18:44.378+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:18:44.381+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:18:47.058+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-3p5
+time=2026-02-10T11:18:47.559+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:18:47.560+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:18:47.562+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:18:48.738+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-db6
+time=2026-02-10T11:18:49.238+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:18:49.239+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:18:49.241+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:18:51.009+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-6y7
+time=2026-02-10T11:18:51.509+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:18:51.510+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:18:51.512+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:18:53.986+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-57d
+time=2026-02-10T11:18:54.487+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:18:54.487+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:18:54.488+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:19:03.010+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-shq
+time=2026-02-10T11:19:03.511+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:19:03.512+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:19:03.515+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:19:09.905+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-sdk
+time=2026-02-10T11:19:10.405+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:19:10.406+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:19:10.409+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:19:13.330+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-vhq
+time=2026-02-10T11:19:13.831+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:19:13.832+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:19:13.834+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:19:16.875+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-v7e
+time=2026-02-10T11:19:17.375+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:19:17.377+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:19:17.380+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:19:20.055+07:00 level=INFO msg="Mutation detected: %s %s" create=chatbot-uvu
+time=2026-02-10T11:19:20.555+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:19:20.555+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:19:20.556+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:20:04.001+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-8ml
+time=2026-02-10T11:20:04.502+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:20:04.503+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:20:04.505+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:24:47.700+07:00 level=INFO msg="Git ref change detected: %s" !BADKEY=C:\Users\ADMIN\chatbot\.git\refs\heads\002-connect-db-and-design-data-pipeline.lock
+time=2026-02-10T11:24:48.701+07:00 level=INFO msg="Import triggered by file change"
+time=2026-02-10T11:24:48.702+07:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-10T11:24:48.702+07:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-10T11:24:50.552+07:00 level=INFO msg="Pulled from remote"
+time=2026-02-10T11:24:50.573+07:00 level=INFO msg="Imported from JSONL"
+time=2026-02-10T11:24:50.575+07:00 level=INFO msg="Auto-import complete"
+time=2026-02-10T11:34:02.341+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-b0j
+time=2026-02-10T11:34:02.494+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-wsi
+time=2026-02-10T11:34:02.644+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-4m1
+time=2026-02-10T11:34:02.797+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-3la
+time=2026-02-10T11:34:02.954+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-pfr
+time=2026-02-10T11:34:03.455+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:34:03.455+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:34:03.483+07:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-10T11:34:03.496+07:00 level=INFO msg="Exported to JSONL"
+time=2026-02-10T11:34:03.496+07:00 level=INFO msg="Export complete"
+time=2026-02-10T11:34:03.534+07:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-10T11:34:03.534+07:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-10T11:34:03.584+07:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-10T11:34:03.584+07:00 level=INFO msg="JSONL file created: %s" !BADKEY=C:\Users\ADMIN\chatbot\.beads\issues.jsonl
+time=2026-02-10T11:34:04.585+07:00 level=INFO msg="Import triggered by file change"
+time=2026-02-10T11:34:04.585+07:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-10T11:34:04.586+07:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-10T11:34:04.607+07:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=C:\Users\ADMIN\chatbot\.beads\issues.jsonl
+time=2026-02-10T11:34:04.608+07:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-10T11:34:04.608+07:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-10T11:34:06.315+07:00 level=INFO msg="Pulled from remote"
+time=2026-02-10T11:34:06.340+07:00 level=INFO msg="Imported from JSONL"
+time=2026-02-10T11:34:06.342+07:00 level=INFO msg="Auto-import complete"
+time=2026-02-10T11:36:22.299+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-42t
+time=2026-02-10T11:36:22.562+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-cut
+time=2026-02-10T11:36:22.820+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-l8c
+time=2026-02-10T11:36:23.321+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:36:23.321+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:36:23.322+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:37:49.756+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-mbp
+time=2026-02-10T11:37:50.019+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-3mo
+time=2026-02-10T11:37:50.277+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-3hv
+time=2026-02-10T11:37:50.535+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-lwh
+time=2026-02-10T11:37:50.788+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-80j
+time=2026-02-10T11:37:51.048+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-8ai
+time=2026-02-10T11:37:51.322+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-v0a
+time=2026-02-10T11:37:51.822+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:37:51.822+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:37:51.822+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:38:08.648+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-m2e
+time=2026-02-10T11:38:09.149+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:38:09.149+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:38:09.150+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:39:50.162+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-ua0
+time=2026-02-10T11:39:50.432+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-k5b
+time=2026-02-10T11:39:50.689+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-dp9
+time=2026-02-10T11:39:50.948+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-kzy
+time=2026-02-10T11:39:51.202+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-4sx
+time=2026-02-10T11:39:51.703+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:39:51.703+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:39:51.703+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:39:58.973+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-70w
+time=2026-02-10T11:39:59.223+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-9z4
+time=2026-02-10T11:39:59.472+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-b1l
+time=2026-02-10T11:39:59.725+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-v7m
+time=2026-02-10T11:39:59.981+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-1xb
+time=2026-02-10T11:40:00.481+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:40:00.482+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:40:00.482+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:46:09.559+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-57z
+time=2026-02-10T11:46:09.810+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-gd2
+time=2026-02-10T11:46:10.062+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-3p5
+time=2026-02-10T11:46:10.328+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-db6
+time=2026-02-10T11:46:10.586+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-6y7
+time=2026-02-10T11:46:11.086+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:46:11.087+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:46:11.090+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:46:16.121+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-w4o
+time=2026-02-10T11:46:16.377+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-v7e
+time=2026-02-10T11:46:16.632+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-shq
+time=2026-02-10T11:46:17.132+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:46:17.133+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:46:17.136+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:46:21.535+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-m3x
+time=2026-02-10T11:46:22.035+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:46:22.035+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:46:22.036+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:46:25.920+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-hbt
+time=2026-02-10T11:46:26.420+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:46:26.420+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:46:26.422+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:46:30.122+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-57d
+time=2026-02-10T11:46:30.622+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:46:30.622+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:46:30.623+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-10T11:46:34.684+07:00 level=INFO msg="Mutation detected: %s %s" status=chatbot-vhq
+time=2026-02-10T11:46:35.184+07:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-10T11:46:35.184+07:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-10T11:46:35.185+07:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"

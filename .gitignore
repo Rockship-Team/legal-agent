@@ -55,6 +55,9 @@ ENV/
 *.egg-info/
 .eggs/
 
+# Beads
+.beads/daemon.lock
+
 # IDE
 .idea/
 *.swp

@@ -1,60 +1,60 @@
 {
   "id": "service_v1",
   "template_type": "service",
-  "name": "Hop dong dich vu",
-  "description": "Mau hop dong cung cap dich vu theo Bo luat Dan su 2015",
+  "name": "Hợp đồng dịch vụ",
+  "description": "Mẫu hợp đồng cung cấp dịch vụ theo Bộ luật Dân sự 2015",
   "required_fields": [
     {
       "name": "provider_name",
-      "label": "Ho ten/Ten cong ty ben cung cap",
+      "label": "Họ tên/Tên công ty bên cung cấp",
       "field_type": "text",
       "required": true
     },
     {
       "name": "provider_id",
-      "label": "So CCCD/Ma so thue",
+      "label": "Số CCCD/Mã số thuế",
       "field_type": "text",
       "required": true
     },
     {
       "name": "provider_address",
-      "label": "Dia chi ben cung cap",
+      "label": "Địa chỉ bên cung cấp",
       "field_type": "address",
       "required": true
     },
     {
       "name": "client_name",
-      "label": "Ho ten/Ten cong ty ben su dung",
+      "label": "Họ tên/Tên công ty bên sử dụng",
       "field_type": "text",
       "required": true
     },
     {
       "name": "client_id",
-      "label": "So CCCD/Ma so thue",
+      "label": "Số CCCD/Mã số thuế",
       "field_type": "text",
       "required": true
     },
     {
       "name": "client_address",
-      "label": "Dia chi ben su dung",
+      "label": "Địa chỉ bên sử dụng",
       "field_type": "address",
       "required": true
     },
     {
       "name": "service_description",
-      "label": "Mo ta dich vu",
+      "label": "Mô tả dịch vụ",
       "field_type": "text",
       "required": true
     },
     {
       "name": "service_fee",
-      "label": "Phi dich vu (VND)",
+      "label": "Phí dịch vụ (VND)",
       "field_type": "number",
       "required": true
     },
     {
       "name": "duration",
-      "label": "Thoi han hop dong",
+      "label": "Thời hạn hợp đồng",
       "field_type": "text",
       "required": true
     }

@@ -1,6 +1,7 @@
 """Document generator service for PDF contracts with Vietnamese support"""
 
 import json
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -14,6 +15,8 @@ from legal_chatbot.models.template import ContractTemplate, ContractField, Templ
 from legal_chatbot.utils.config import get_settings
 from legal_chatbot.utils.pdf_fonts import register_vietnamese_fonts, get_font_name
 
+logger = logging.getLogger(__name__)
+
 
 class GeneratorService:
     """Service for generating PDF contracts from templates"""
@@ -25,6 +28,19 @@ class GeneratorService:
         self._load_templates()
         # Register Vietnamese fonts on initialization
         register_vietnamese_fonts()
+        self._audit = None
+
+    @property
+    def audit(self):
+        """Lazy-load audit service."""
+        if self._audit is None:
+            try:
+                from legal_chatbot.db.supabase import get_database
+                from legal_chatbot.services.audit import AuditService
+                self._audit = AuditService(get_database())
+            except Exception:
+                self._audit = None
+        return self._audit
 
     def _load_templates(self):
         """Load all templates from JSON files"""
@@ -94,12 +110,28 @@ class GeneratorService:
         # Generate PDF
         self._generate_pdf(template, data, output_path, watermark)
 
-        return GeneratedContract(
+        result = GeneratedContract(
             template_id=template.id,
             filled_fields=data,
             output_path=output_path,
             generated_at=datetime.now(),
         )
+
+        # Save audit trail (non-blocking)
+        try:
+            if self.audit:
+                from legal_chatbot.models.audit import ContractAudit
+                audit_entry = ContractAudit(
+                    contract_type=template_type,
+                    input_data=data,
+                    generated_content=f"Generated from template: {template.name}",
+                    pdf_storage_path=str(output_path),
+                )
+                self.audit.save_contract_audit(audit_entry)
+        except Exception as e:
+            logger.warning(f"Audit save failed (non-critical): {e}")
+
+        return result
 
     def _generate_pdf(
         self,
@@ -150,17 +182,46 @@ class GeneratorService:
             leading=16,
         )
 
+        # Subtitle style (centered, normal weight)
+        subtitle_style = ParagraphStyle(
+            'CustomSubtitle',
+            parent=styles['Normal'],
+            fontName=font_name,
+            fontSize=12,
+            alignment=1,
+            spaceAfter=5,
+        )
+
+        # Small center style for contract number and date
+        center_style = ParagraphStyle(
+            'CenterSmall',
+            parent=styles['Normal'],
+            fontName=font_name,
+            fontSize=11,
+            alignment=1,
+        )
+
         # Build document content
         story = []
 
         # Header - Vietnamese with diacritics
         story.append(Paragraph("CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM", title_style))
-        story.append(Paragraph("Độc lập - Tự do - Hạnh phúc", normal_style))
+        story.append(Paragraph("Độc lập - Tự do - Hạnh phúc", subtitle_style))
+        story.append(Paragraph("---oOo---", center_style))
         story.append(Spacer(1, 20))
 
         # Title
         story.append(Paragraph(template.name.upper(), title_style))
-        story.append(Spacer(1, 10))
+
+        # Contract number placeholder
+        story.append(Paragraph("Số: ......./........./HĐ", center_style))
+        story.append(Spacer(1, 5))
+
+        # Date and location
+        today = datetime.now()
+        date_str = f"........., ngày {today.day} tháng {today.month} năm {today.year}"
+        story.append(Paragraph(date_str, center_style))
+        story.append(Spacer(1, 15))
 
         # Contract parties
         if template.template_type == TemplateType.RENTAL:

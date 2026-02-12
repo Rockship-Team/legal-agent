@@ -11,6 +11,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-05
 - Playwright + BeautifulSoup (Web crawling)
 - sentence-transformers (Embeddings)
 - pytest (Testing)
+- Python 3.11+ + supabase-py, sentence-transformers, Playwright + stealth, APScheduler (002-connect-db-and-design-data-pipeline)
+- Supabase PostgreSQL + pgvector (production) / SQLite (local fallback) (002-connect-db-and-design-data-pipeline)
 
 ## Project Structure
 
@@ -94,6 +96,7 @@ LOG_LEVEL=INFO
 ```
 
 ## Recent Changes
+- 002-connect-db-and-design-data-pipeline: Added Python 3.11+ + supabase-py, sentence-transformers, Playwright + stealth, APScheduler
 - 001-planning: Simplified to Python-only CLI with Groq API (2026-02-05)
 
 <!-- MANUAL ADDITIONS START -->

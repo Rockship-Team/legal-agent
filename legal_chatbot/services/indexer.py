@@ -2,6 +2,7 @@
 
 import re
 import json
+import uuid as _uuid
 from pathlib import Path
 from typing import Optional
 from bs4 import BeautifulSoup
@@ -48,13 +49,36 @@ class IndexerService:
         Parse HTML content to extract individual articles (Điều).
         """
         soup = BeautifulSoup(html_content, 'html.parser')
-        text = soup.get_text()
+        for br in soup.find_all('br'):
+            br.replace_with(' ')
+        text = soup.get_text(separator='\n')
+
+        # HTML uses single \n for word-wrap, \n\n+ for paragraph breaks.
+        # Step 1: Mark paragraph breaks (2+ newlines) with placeholder
+        text = re.sub(r'\n\s*\n', '\n\n', text)
+        # Step 2: Join word-wrapped lines (single \n) with space
+        lines = text.split('\n')
+        merged = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                # Empty line = paragraph break, keep as newline
+                if merged and merged[-1] != '':
+                    merged.append('')
+            else:
+                # Non-empty line: merge with previous if it was also non-empty
+                if merged and merged[-1] != '':
+                    merged[-1] = merged[-1] + ' ' + stripped
+                else:
+                    merged.append(stripped)
+        text = '\n'.join(line for line in merged if line)
+        text = re.sub(r'[ \t]+', ' ', text)
 
         articles = []
         current_chapter = None
 
-        # Pattern to match articles
-        article_pattern = r'(Điều\s+(\d+)\.?\s*([^\n]*?)(?=\n|$))(.*?)(?=Điều\s+\d+\.|$)'
+        # Pattern: Điều N. Title\nContent...until next Điều
+        article_pattern = r'(Điều\s+(\d+)\.?\s*([^\n]*))\n(.*?)(?=Điều\s+\d+\.|$)'
 
         # Find chapter headers
         chapter_pattern = r'(Chương\s+[IVXLCDM]+[:\.\s]+[^\n]+)'
@@ -78,7 +102,7 @@ class IndexerService:
                 article_content = clean_text(full_match)
 
                 if len(article_content) > 50:  # Skip very short/empty articles
-                    article_id = f"{document_id}_dieu_{article_num}"
+                    article_id = str(_uuid.uuid5(_uuid.NAMESPACE_URL, f"{document_id}_dieu_{article_num}"))
 
                     articles.append(ParsedArticle(
                         id=article_id,
