@@ -22,6 +22,26 @@ Cac lenh ho tro tao va quan ly hop dong phap ly:
 | `/legal.preview` | Xem truoc hop dong tren trinh duyet |
 | `/legal.export-pdf` | Xuat hop dong ra file PDF |
 
+### Data Pipeline
+| Lenh | Mo ta |
+|------|-------|
+| `/legal.pipeline crawl [category]` | Crawl va index van ban phap luat theo linh vuc |
+| `/legal.pipeline categories` | Liet ke cac linh vuc co san (dat_dai, nha_o, ...) |
+| `/legal.pipeline status` | Kiem tra trang thai pipeline |
+
+### Database
+| Lenh | Mo ta |
+|------|-------|
+| `/legal.db status` | Kiem tra ket noi database va thong ke |
+| `/legal.db migrate` | Migrate schema (Supabase hoac SQLite) |
+
+### Audit Trail
+| Lenh | Mo ta |
+|------|-------|
+| `/legal.audit list` | Xem lich su research va contract gan day |
+| `/legal.audit show [id]` | Xem chi tiet mot audit entry |
+| `/legal.audit verify [id]` | Kiem tra luat da dung con hieu luc khong |
+
 ## Huong dan su dung
 
 ### Tao hop dong moi
@@ -37,6 +57,12 @@ Cac lenh ho tro tao va quan ly hop dong phap ly:
 2. Bot se search va tong hop thong tin phap luat
 3. Co the hoi them chi tiet sau khi xem ket qua
 
+### Crawl du lieu phap luat moi
+1. Chay `/legal.db status` de kiem tra ket noi
+2. Chay `/legal.pipeline categories` de xem linh vuc co san
+3. Chay `/legal.pipeline crawl dat_dai` de crawl luat dat dai
+4. Chay `/legal.audit list` de xem ket qua
+
 ## Vi du
 
 ```
@@ -44,6 +70,11 @@ Cac lenh ho tro tao va quan ly hop dong phap ly:
 /legal.create-contract mua ban dat
 /legal.research thanh lap cong ty TNHH
 /legal.research thu tuc ly hon
+/legal.pipeline crawl dat_dai
+/legal.pipeline crawl dat_dai --limit 5
+/legal.db status
+/legal.audit list --limit 10
+/legal.audit verify a1b2c3
 ```
 
 ## Luu y

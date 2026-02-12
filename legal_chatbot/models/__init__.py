@@ -3,9 +3,12 @@
 from legal_chatbot.models.document import (
     DocumentType,
     DocumentStatus,
+    RelationType,
+    LegalCategory,
     LegalDocument,
     Article,
     ArticleWithContext,
+    DocumentRelation,
 )
 from legal_chatbot.models.chat import (
     MessageRole,
@@ -20,13 +23,28 @@ from legal_chatbot.models.template import (
     ContractTemplate,
     GeneratedContract,
 )
+from legal_chatbot.models.pipeline import (
+    PipelineStatus,
+    CategoryConfig,
+    CrawlResult,
+    PipelineRun,
+)
+from legal_chatbot.models.audit import (
+    LawVersion,
+    ArticleSource,
+    ResearchAudit,
+    ContractAudit,
+)
 
 __all__ = [
     "DocumentType",
     "DocumentStatus",
+    "RelationType",
+    "LegalCategory",
     "LegalDocument",
     "Article",
     "ArticleWithContext",
+    "DocumentRelation",
     "MessageRole",
     "Citation",
     "ChatMessage",
@@ -36,4 +54,12 @@ __all__ = [
     "ContractField",
     "ContractTemplate",
     "GeneratedContract",
+    "PipelineStatus",
+    "CategoryConfig",
+    "CrawlResult",
+    "PipelineRun",
+    "LawVersion",
+    "ArticleSource",
+    "ResearchAudit",
+    "ContractAudit",
 ]

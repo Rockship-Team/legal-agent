@@ -1,67 +1,86 @@
 {
   "id": "sale_v1",
   "template_type": "sale",
-  "name": "Hop dong mua ban",
-  "description": "Mau hop dong mua ban tai san theo Bo luat Dan su 2015",
+  "name": "Hợp đồng mua bán",
+  "description": "Mẫu hợp đồng mua bán tài sản theo Bộ luật Dân sự 2015",
   "required_fields": [
     {
       "name": "seller_name",
-      "label": "Ho ten ben ban",
+      "label": "Họ tên bên bán",
       "field_type": "text",
       "required": true
     },
     {
       "name": "seller_id",
-      "label": "So CCCD ben ban",
+      "label": "Số CCCD bên bán",
       "field_type": "text",
       "required": true,
       "validation": "^[0-9]{12}$"
     },
     {
       "name": "seller_address",
-      "label": "Dia chi ben ban",
+      "label": "Địa chỉ bên bán",
       "field_type": "address",
       "required": true
     },
     {
       "name": "buyer_name",
-      "label": "Ho ten ben mua",
+      "label": "Họ tên bên mua",
       "field_type": "text",
       "required": true
     },
     {
       "name": "buyer_id",
-      "label": "So CCCD ben mua",
+      "label": "Số CCCD bên mua",
       "field_type": "text",
       "required": true,
       "validation": "^[0-9]{12}$"
     },
     {
       "name": "buyer_address",
-      "label": "Dia chi ben mua",
+      "label": "Địa chỉ bên mua",
       "field_type": "address",
       "required": true
     },
     {
       "name": "property_description",
-      "label": "Mo ta tai san",
+      "label": "Mô tả tài sản",
       "field_type": "text",
       "required": true
     },
     {
       "name": "sale_price",
-      "label": "Gia ban (VND)",
+      "label": "Giá bán (VND)",
       "field_type": "number",
       "required": true
     },
     {
       "name": "payment_method",
-      "label": "Phuong thuc thanh toan",
+      "label": "Phương thức thanh toán",
       "field_type": "text",
       "required": true,
-      "default_value": "Tien mat"
+      "default_value": "Chuyển khoản ngân hàng"
+    },
+    {
+      "name": "deposit_amount",
+      "label": "Tiền đặt cọc (VND)",
+      "field_type": "number",
+      "required": false,
+      "default_value": "0"
+    },
+    {
+      "name": "delivery_date",
+      "label": "Ngày giao tài sản",
+      "field_type": "date",
+      "required": false
+    },
+    {
+      "name": "delivery_address",
+      "label": "Địa điểm giao tài sản",
+      "field_type": "address",
+      "required": false
     }
   ],
   "legal_references": [],
-  "version": 1
+  "version": 2
 }

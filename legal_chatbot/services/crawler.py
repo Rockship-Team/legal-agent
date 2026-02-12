@@ -1,17 +1,23 @@
 """Web crawler service for legal documents"""
 
 import asyncio
-import aiohttp
+import hashlib
+import logging
+import random
 import re
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, AsyncIterator
+from typing import Optional, AsyncIterator, List
+
+import aiohttp
 from bs4 import BeautifulSoup
 from pydantic import BaseModel
 
 from legal_chatbot.utils.config import get_settings
 from legal_chatbot.utils.vietnamese import clean_text, normalize_vietnamese
+
+logger = logging.getLogger(__name__)
 
 
 class CrawlConfig(BaseModel):
@@ -200,6 +206,90 @@ class CrawlerService:
             json.dump(doc.model_dump(mode='json'), f, ensure_ascii=False, indent=2, default=str)
 
         return filepath
+
+
+    async def crawl_with_stealth(self, url: str) -> str:
+        """Crawl a single page using Playwright + stealth.
+
+        - Firefox browser (less fingerprinted)
+        - playwright-stealth plugin
+        - Realistic viewport (1920x1080), locale (vi-VN)
+        - Wait for Cloudflare challenge (5-10s)
+        - Rate limiting: 3-5s + random jitter
+        """
+        from playwright.async_api import async_playwright
+
+        settings = get_settings()
+
+        async with async_playwright() as p:
+            browser = await p.firefox.launch(headless=True)
+            context = await browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+                locale="vi-VN",
+                timezone_id="Asia/Ho_Chi_Minh",
+            )
+
+            try:
+                # Apply stealth
+                try:
+                    from playwright_stealth import stealth_async
+                    page = await context.new_page()
+                    await stealth_async(page)
+                except ImportError:
+                    logger.warning("playwright-stealth not installed, proceeding without stealth")
+                    page = await context.new_page()
+
+                # Navigate and wait for Cloudflare
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                await page.wait_for_timeout(random.randint(5000, 10000))
+
+                html = await page.content()
+                return html
+
+            finally:
+                await browser.close()
+
+        return ""
+
+    async def crawl_category_listing(
+        self, category_url: str, limit: int = 20
+    ) -> List[dict]:
+        """Crawl category listing page to discover documents.
+
+        Returns list of {url, title, document_number, status} dicts.
+        """
+        html = await self.crawl_with_stealth(category_url)
+        soup = BeautifulSoup(html, "html.parser")
+
+        documents = []
+        # Look for document links in listing pages
+        for link in soup.find_all("a", href=True):
+            href = link["href"]
+            if "/van-ban/" in href and href.endswith(".aspx"):
+                title = clean_text(link.get_text())
+                if title and len(title) > 10:
+                    full_url = (
+                        href
+                        if href.startswith("http")
+                        else f"{self.BASE_URL}{href}"
+                    )
+                    doc_number = self._extract_document_number(full_url, soup)
+                    documents.append(
+                        {
+                            "url": full_url,
+                            "title": title,
+                            "document_number": doc_number,
+                        }
+                    )
+                    if len(documents) >= limit:
+                        break
+
+        return documents
+
+    @staticmethod
+    def compute_content_hash(html_content: str) -> str:
+        """Compute SHA-256 hash of content for change detection."""
+        return hashlib.sha256(html_content.encode("utf-8")).hexdigest()
 
 
 async def crawl_documents(limit: int = 10, output_dir: str = "./data/raw") -> list[CrawledDocument]:

@@ -1,5 +1,6 @@
 """Chat agent service with RAG"""
 
+import logging
 from groq import Groq
 from typing import Optional
 import re
@@ -9,6 +10,8 @@ from legal_chatbot.db.chroma import search_articles
 from legal_chatbot.db.sqlite import search_articles_by_ids
 from legal_chatbot.models.chat import ChatResponse, Citation
 from legal_chatbot.utils.vietnamese import extract_all_article_references
+
+logger = logging.getLogger(__name__)
 
 
 # System prompt for Vietnamese legal assistant
@@ -37,14 +40,87 @@ class ChatService:
         self.temperature = settings.llm_temperature
         self.max_tokens = settings.llm_max_tokens
         self.top_k = settings.search_top_k
+        self._audit = None
+
+    @property
+    def audit(self):
+        """Lazy-load audit service to avoid import cycles."""
+        if self._audit is None:
+            try:
+                from legal_chatbot.db.supabase import get_database
+                from legal_chatbot.services.audit import AuditService
+                self._audit = AuditService(get_database())
+            except Exception:
+                self._audit = None
+        return self._audit
 
     def _build_context(self, query: str) -> tuple[str, list[dict]]:
         """
         Build RAG context from search results.
 
+        Uses Supabase vector search when db_mode=supabase,
+        falls back to ChromaDB + SQLite for sqlite mode.
+
         Returns:
             Tuple of (context_string, search_results)
         """
+        settings = get_settings()
+
+        if settings.db_mode == "supabase":
+            return self._build_context_supabase(query)
+
+        return self._build_context_legacy(query)
+
+    def _build_context_supabase(self, query: str) -> tuple[str, list[dict]]:
+        """Build context using Supabase vector search."""
+        try:
+            from legal_chatbot.services.embedding import EmbeddingService
+            from legal_chatbot.db.supabase import get_database
+
+            db = get_database()
+            embedding_service = EmbeddingService()
+
+            # Generate query embedding
+            query_embedding = embedding_service.embed_single(query)
+
+            # Semantic search via pgvector RPC
+            articles = db.search_articles(
+                query_embedding=query_embedding,
+                top_k=self.top_k,
+            )
+
+            if not articles:
+                return "", []
+
+            # Build context string
+            context_parts = []
+            for article in articles:
+                doc_title = article.get('document_title', 'Văn bản pháp luật')
+                article_num = article.get('article_number', '')
+                article_title = article.get('title', '')
+                content = article.get('content', '')
+
+                header = f"[{doc_title} - Điều {article_num}"
+                if article_title:
+                    header += f": {article_title}"
+                header += "]"
+
+                context_parts.append(f"{header}\n{content}")
+
+            context = "\n\n---\n\n".join(context_parts)
+
+            # Add similarity score as 'score' for downstream compatibility
+            for article in articles:
+                if 'similarity' in article and 'score' not in article:
+                    article['score'] = article['similarity']
+
+            return context, articles
+        except Exception as e:
+            logger.warning(f"Supabase search failed, falling back to legacy: {e}")
+            return self._build_context_legacy(query)
+
+    def _build_context_legacy(self, query: str) -> tuple[str, list[dict]]:
+        """Build context using ChromaDB + SQLite (original path)."""
         # Search for relevant articles
         search_results = search_articles(query, top_k=self.top_k)
 
@@ -185,12 +261,39 @@ Lưu ý: Không tìm thấy điều luật liên quan trong cơ sở dữ liệu
         citations = self._extract_citations(answer, search_results)
         suggestions = self._suggest_templates(query, answer)
 
-        return ChatResponse(
+        response = ChatResponse(
             answer=answer,
             citations=citations,
             suggested_templates=suggestions,
             follow_up_questions=[]
         )
+
+        # Save audit trail (non-blocking, never fails the main operation)
+        try:
+            if self.audit:
+                from legal_chatbot.models.audit import ArticleSource, ResearchAudit
+                sources = [
+                    ArticleSource(
+                        article_id=r.get("id", ""),
+                        article_number=r.get("article_number", 0),
+                        document_title=r.get("document_title", ""),
+                        similarity=r.get("score", 0.0),
+                    )
+                    for r in search_results
+                ]
+                audit_entry = ResearchAudit(
+                    query=query,
+                    sources=sources,
+                    response=answer,
+                    law_versions=self.audit.build_law_versions(
+                        [r.get("id", "") for r in search_results]
+                    ),
+                )
+                self.audit.save_research_audit(audit_entry)
+        except Exception as e:
+            logger.warning(f"Audit save failed (non-critical): {e}")
+
+        return response
 
 
 # Singleton instance

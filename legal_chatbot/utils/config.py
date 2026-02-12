@@ -1,9 +1,9 @@
 """Configuration management using pydantic-settings"""
 
-from pathlib import Path
 from typing import Optional
-from pydantic_settings import BaseSettings
+
 from pydantic import Field
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -27,6 +27,26 @@ class Settings(BaseSettings):
 
     # Search settings
     search_top_k: int = Field(default=5, description="Number of results for semantic search")
+
+    # Database mode: 'supabase' or 'sqlite'
+    db_mode: str = Field(default="sqlite", description="Database backend: 'supabase' or 'sqlite'")
+
+    # Supabase settings
+    supabase_url: Optional[str] = Field(default=None, description="Supabase project URL")
+    supabase_key: Optional[str] = Field(default=None, description="Supabase anon key")
+    supabase_service_key: Optional[str] = Field(default=None, description="Supabase service role key")
+
+    # Pipeline settings
+    pipeline_crawl_interval: int = Field(default=168, description="Crawl interval in hours")
+    pipeline_rate_limit: float = Field(default=4.0, description="Seconds between crawl requests")
+    pipeline_max_pages: int = Field(default=20, description="Max pages per crawl session")
+
+    # Embedding settings
+    embedding_model: str = Field(
+        default="bkai-foundation-models/vietnamese-bi-encoder",
+        description="Sentence transformer model for embeddings",
+    )
+    embedding_dimension: int = Field(default=768, description="Embedding vector dimension")
 
     class Config:
         env_file = ".env"

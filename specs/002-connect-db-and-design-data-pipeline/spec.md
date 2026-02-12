@@ -73,22 +73,24 @@ Agent sẽ:
 | Version tracking | Track phiên bản luật được sử dụng cho mỗi kết quả |
 | Audit log | Ghi lại ai hỏi gì, dùng nguồn nào, kết quả ra sao |
 
-### 2.4 CLI Commands mới
+### 2.4 Slash Commands mới
 
 ```bash
 # Pipeline commands
-python -m legal_chatbot pipeline crawl --category dat-dai --limit 20
-python -m legal_chatbot pipeline status
-python -m legal_chatbot pipeline schedule --interval daily
+/legal.pipeline crawl dat_dai              # Crawl & index luật đất đai
+/legal.pipeline crawl dat_dai --limit 5    # Giới hạn số documents
+/legal.pipeline categories                 # Liệt kê các lĩnh vực có sẵn
+/legal.pipeline status                     # Kiểm tra trạng thái pipeline
 
-# Supabase commands
-python -m legal_chatbot db migrate          # Migrate schema lên Supabase
-python -m legal_chatbot db sync             # Sync local ↔ Supabase
-python -m legal_chatbot db status           # Kiểm tra kết nối & stats
+# Database commands
+/legal.db migrate                          # Migrate schema lên Supabase
+/legal.db status                           # Kiểm tra kết nối & stats
 
 # Audit commands
-python -m legal_chatbot audit list          # Xem lịch sử research/contract
-python -m legal_chatbot audit verify <id>   # Verify một kết quả cụ thể
+/legal.audit list                          # Xem lịch sử research/contract
+/legal.audit list --limit 5 --type research  # Lọc theo loại
+/legal.audit show <id>                     # Xem chi tiết audit entry
+/legal.audit verify <id>                   # Verify luật còn hiệu lực không
 ```
 
 ---
@@ -573,21 +575,21 @@ pytest tests/integration/test_audit.py
 
 ```bash
 # 1. Setup Supabase tables
-python -m legal_chatbot db migrate
+/legal.db migrate
 
 # 2. Crawl luật đất đai
-python -m legal_chatbot pipeline crawl --category dat-dai --limit 5
+/legal.pipeline crawl dat_dai --limit 5
 
 # 3. Verify data
-python -m legal_chatbot db status
+/legal.db status
 # Expected: ~5 documents, ~200+ articles, embeddings generated
 
 # 4. Test query
-python -m legal_chatbot chat "Điều kiện chuyển nhượng quyền sử dụng đất?"
+/legal.research Điều kiện chuyển nhượng quyền sử dụng đất?
 # Expected: Response citing Luật Đất đai 2024, Điều 45
 
 # 5. Check audit
-python -m legal_chatbot audit list --limit 5
+/legal.audit list --limit 5
 # Expected: Audit entry with query, sources, response
 ```
 

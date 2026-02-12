@@ -1,5 +1,6 @@
 """Database modules"""
 
+# Legacy exports (backward compatibility with 001 code)
 from legal_chatbot.db.sqlite import (
     init_db,
     get_connection,
@@ -17,7 +18,12 @@ from legal_chatbot.db.chroma import (
     search_articles,
 )
 
+# New exports (002)
+from legal_chatbot.db.base import DatabaseInterface
+from legal_chatbot.db.supabase import get_database
+
 __all__ = [
+    # Legacy
     "init_db",
     "get_connection",
     "insert_document",
@@ -30,4 +36,7 @@ __all__ = [
     "get_collection",
     "add_articles",
     "search_articles",
+    # New
+    "DatabaseInterface",
+    "get_database",
 ]

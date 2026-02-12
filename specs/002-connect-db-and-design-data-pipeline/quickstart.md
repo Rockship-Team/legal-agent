@@ -31,8 +31,8 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 ### 1.3 Run Schema Migration
 
-```bash
-python -m legal_chatbot db migrate
+```
+/legal.db migrate
 ```
 
 This creates all tables, indexes, RPC functions, and RLS policies.
@@ -73,8 +73,8 @@ playwright install firefox
 
 ## 4. Verify Connection
 
-```bash
-python -m legal_chatbot db status
+```
+/legal.db status
 ```
 
 Expected output:
@@ -89,9 +89,9 @@ Documents: 0 | Articles: 0
 
 ### 5.1 Crawl Land Law Documents
 
-```bash
+```
 # Crawl Luật Đất đai 2024 and related regulations
-python -m legal_chatbot pipeline crawl --category dat-dai --limit 3
+/legal.pipeline crawl dat_dai --limit 3
 ```
 
 Expected output:
@@ -106,8 +106,8 @@ Phase 4: Validation... ✓ passed
 
 ### 5.2 Verify Data
 
-```bash
-python -m legal_chatbot db status
+```
+/legal.db status
 ```
 
 Expected:
@@ -118,15 +118,15 @@ Storage: 3 raw HTML files
 
 ## 6. Test Semantic Search
 
-```bash
-python -m legal_chatbot chat "Điều kiện chuyển nhượng quyền sử dụng đất?"
+```
+/legal.research Điều kiện chuyển nhượng quyền sử dụng đất?
 ```
 
 Expected: Response citing Luật Đất đai 2024, with specific article numbers.
 
-```bash
+```
 # Check audit trail
-python -m legal_chatbot audit list --limit 1
+/legal.audit list --limit 1
 ```
 
 Expected: Audit entry showing query, sources, and law versions used.
@@ -139,58 +139,57 @@ To work offline, change `DB_MODE`:
 DB_MODE=sqlite
 ```
 
-All existing CLI commands work as before with local SQLite database.
+All existing slash commands work as before with local SQLite database.
 
 ## Usage Reference
 
 ### Pipeline Commands
 
-```bash
+```
 # Crawl by category
-python -m legal_chatbot pipeline crawl --category dat-dai --limit 20
-python -m legal_chatbot pipeline crawl --category nha-o --limit 10
+/legal.pipeline crawl dat_dai
+/legal.pipeline crawl dat_dai --limit 20
+/legal.pipeline crawl nha_o --limit 10
 
 # Check pipeline history
-python -m legal_chatbot pipeline status
+/legal.pipeline status
 
 # List available categories
-python -m legal_chatbot pipeline categories
+/legal.pipeline categories
 ```
 
 ### Database Commands
 
-```bash
+```
 # Migrate schema
-python -m legal_chatbot db migrate
+/legal.db migrate
 
 # Connection status
-python -m legal_chatbot db status
-
-# Sync local ↔ cloud
-python -m legal_chatbot db sync
+/legal.db status
 ```
 
 ### Audit Commands
 
-```bash
+```
 # List recent audits
-python -m legal_chatbot audit list --limit 20
+/legal.audit list
+/legal.audit list --limit 20
 
 # Verify specific audit (check if laws are still current)
-python -m legal_chatbot audit verify <audit-id>
+/legal.audit verify <audit-id>
 
 # Show full audit details
-python -m legal_chatbot audit show <audit-id>
+/legal.audit show <audit-id>
 ```
 
 ### Existing Commands (unchanged)
 
-```bash
-python -m legal_chatbot chat "question"
-python -m legal_chatbot interactive
-python -m legal_chatbot research "topic"
-python -m legal_chatbot generate --template rental --interactive
-python -m legal_chatbot templates
+```
+/legal.research [topic]
+/legal.create-contract [type]
+/legal.preview
+/legal.export-pdf
+/legal.help
 ```
 
 ## Troubleshooting
