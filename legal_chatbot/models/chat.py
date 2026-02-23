@@ -47,6 +47,8 @@ class ChatResponse(BaseModel):
     citations: list[Citation] = []
     suggested_templates: list[str] = []
     follow_up_questions: list[str] = []
+    has_data: bool = True               # False when no data available for category
+    category: Optional[str] = None      # Detected legal category
 
 
 class SearchResult(BaseModel):

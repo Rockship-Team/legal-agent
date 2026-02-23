@@ -1,0 +1,34 @@
+{
+  "project_name": "legal_chatbot",
+  "tech_stack": {
+    "language": "Python 3.11+",
+    "framework": "Typer + Rich",
+    "build_tool": "setuptools (pyproject.toml)",
+    "llm": "Groq API (llama-3.3-70b-versatile)",
+    "database": "Supabase PostgreSQL + pgvector / SQLite",
+    "embeddings": "sentence-transformers (vietnamese-bi-encoder, 768d)",
+    "crawler": "Playwright + stealth + BeautifulSoup4",
+    "pdf": "ReportLab",
+    "scheduler": "APScheduler 3.10+",
+    "testing": "pytest + pytest-asyncio",
+    "code_style": "Black + isort + mypy"
+  },
+  "architecture": {
+    "pattern": "Layered DDD (CLI → Services → DB)",
+    "key_directories": [
+      "legal_chatbot/cli/",
+      "legal_chatbot/services/",
+      "legal_chatbot/models/",
+      "legal_chatbot/db/",
+      "legal_chatbot/utils/",
+      "legal_chatbot/templates/"
+    ]
+  },
+  "entry_points": [
+    "legal_chatbot/__main__.py",
+    "legal_chatbot/cli/main.py"
+  ],
+  "file_count": 35,
+  "total_loc": 7918,
+  "audit_type": "quick"
+}

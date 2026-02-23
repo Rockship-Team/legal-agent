@@ -452,40 +452,30 @@ def pipeline_command(
         db = get_database()
         pipeline = PipelineService(db=db)
 
-        # Step 1: Sync categories
-        console.print("[blue]Step 1: Syncing categories...[/blue]")
-        count = pipeline.sync_categories()
-        console.print(f"  Synced {count} categories")
-
-        # Step 2: Fix category_id on existing documents
-        console.print("[blue]Step 2: Fixing document category_id...[/blue]")
+        # Step 1: Fix category_id on existing documents (auto-detect from title)
+        console.print("[blue]Step 1: Auto-detecting categories from document titles...[/blue]")
         if not hasattr(db, "_write"):
             console.print("[red]fix-data requires Supabase mode[/red]")
             return
 
         client = db._write()
-        docs = client.table("legal_documents").select("id, source_url, category_id").execute()
+        docs = client.table("legal_documents").select("id, title, source_url, category_id").execute()
         fixed = 0
         for d in docs.data:
             if d.get("category_id"):
                 continue  # Already has category
-            source_url = d.get("source_url") or ""
-            matched_category = None
-            for url_pattern, cat_name in URL_CATEGORY_MAP.items():
-                if source_url and url_pattern in source_url:
-                    matched_category = cat_name
-                    break
-            if matched_category:
-                cat_id = pipeline.get_category_id(matched_category)
+            title = d.get("title") or ""
+            if title:
+                cat_id = pipeline.category_from_document_title(title)
                 if cat_id:
                     client.table("legal_documents").update(
                         {"category_id": cat_id}
                     ).eq("id", d["id"]).execute()
                     fixed += 1
-                    console.print(f"  Fixed: {d['id'][:8]}... -> {matched_category}")
+                    console.print(f"  Fixed: {title[:50]}...")
         console.print(f"  Fixed {fixed} documents")
 
-        # Step 3: Show summary
+        # Step 2: Show summary
         console.print("\n[green]Fix-data completed![/green]")
         status = db.get_status()
         console.print(f"  Categories: {status.get('categories', 0)}")
@@ -503,29 +493,146 @@ def pipeline_command(
         db = get_database()
         pipeline = PipelineService(db=db)
 
-        console.print(f"[blue]Pipeline: {category}[/blue]")
+        force_crawl = "--force" in sys.argv
+        console.print(f"[blue]Pipeline: {category}{'  (force)' if force_crawl else ''}[/blue]")
 
         async def run_pipeline():
-            return await pipeline.run(category, limit=limit)
+            return await pipeline.run(category, limit=limit, force=force_crawl)
 
         with console.status("[blue]Running pipeline...[/blue]"):
             run = asyncio.run(run_pipeline())
 
         if run.status.value == "completed":
             console.print(f"[green]Pipeline completed![/green]")
-            console.print(f"  Documents: {run.documents_new} new / {run.documents_found} found")
+            console.print(f"  Documents: {run.documents_new} new / {run.documents_found} found / {run.documents_skipped} skipped")
             console.print(f"  Articles: {run.articles_indexed}")
             console.print(f"  Embeddings: {run.embeddings_generated}")
+            if run.duration_seconds:
+                console.print(f"  Duration: {run.duration_seconds:.1f}s")
         else:
             console.print(f"[red]Pipeline failed: {run.error_message}[/red]")
         return
 
     if action == "status":
-        console.print("[yellow]Pipeline status: check db status for now[/yellow]")
+        # Show pipeline + worker status
+        db = get_database()
+        status = db.get_status()
+        console.print(f"[cyan]DB:[/cyan] {status.get('documents', 0)} docs, {status.get('articles', 0)} articles")
+
+        # Show category stats with worker info
+        if hasattr(db, "get_all_categories_with_stats"):
+            cats = db.get_all_categories_with_stats()
+            table = Table(title="Category Pipeline Status")
+            table.add_column("Category", style="cyan")
+            table.add_column("Display", style="green")
+            table.add_column("Docs", justify="right")
+            table.add_column("Articles", justify="right")
+            table.add_column("Schedule", style="yellow")
+            table.add_column("Worker", style="dim")
+            table.add_column("Last Run", style="dim")
+            for c in cats:
+                table.add_row(
+                    c["name"],
+                    c["display_name"],
+                    str(c.get("document_count", 0)),
+                    str(c.get("article_count", 0)),
+                    c.get("worker_schedule", "-"),
+                    c.get("worker_status", "-"),
+                    str(c.get("last_worker_run_at", "-"))[:19] if c.get("last_worker_run_at") else "-",
+                )
+            console.print(table)
+        return
+
+    if action == "worker":
+        # Worker subcommands: start, stop, status, schedule
+        worker_action = category or ""  # Reuse --category for worker action
+        if not worker_action:
+            # Check if there's a positional argument after "worker"
+            try:
+                idx = sys.argv.index("worker")
+                if idx + 1 < len(sys.argv) and not sys.argv[idx + 1].startswith("-"):
+                    worker_action = sys.argv[idx + 1]
+            except (ValueError, IndexError):
+                pass
+
+        if not worker_action:
+            console.print("[yellow]Usage: pipeline worker <start|stop|status|schedule>[/yellow]")
+            return
+
+        from legal_chatbot.services.worker import get_worker
+        worker = get_worker()
+
+        if worker_action == "start":
+            console.print("[blue]Starting background worker...[/blue]")
+            asyncio.run(worker.start())
+            status = worker.get_status()
+            if status.is_running:
+                console.print(f"[green]Worker started! {len(status.jobs)} jobs scheduled.[/green]")
+                for job in status.jobs:
+                    console.print(f"  {job.category}: {job.trigger}")
+                console.print("\n[dim]Worker will run in background. Press Ctrl+C to stop.[/dim]")
+                # Keep running
+                try:
+                    asyncio.get_event_loop().run_forever()
+                except KeyboardInterrupt:
+                    worker.stop()
+                    console.print("[yellow]Worker stopped.[/yellow]")
+            else:
+                console.print("[red]Worker failed to start[/red]")
+
+        elif worker_action == "stop":
+            worker.stop()
+            console.print("[green]Worker stopped.[/green]")
+
+        elif worker_action == "status":
+            status = worker.get_status()
+            console.print(f"[cyan]Worker running:[/cyan] {'Yes' if status.is_running else 'No'}")
+            if status.jobs:
+                table = Table(title="Scheduled Jobs")
+                table.add_column("Category", style="cyan")
+                table.add_column("Name")
+                table.add_column("Trigger", style="yellow")
+                table.add_column("Next Run", style="green")
+                table.add_column("Status", style="dim")
+                for job in status.jobs:
+                    table.add_row(
+                        job.category,
+                        job.name,
+                        job.trigger,
+                        str(job.next_run)[:19] if job.next_run else "-",
+                        job.status,
+                    )
+                console.print(table)
+
+        elif worker_action == "schedule":
+            # Show schedule from DB
+            db = get_database()
+            cats = db.get_all_categories_with_stats()
+            table = Table(title="Worker Schedule")
+            table.add_column("Category", style="cyan")
+            table.add_column("Schedule", style="yellow")
+            table.add_column("Time", style="green")
+            table.add_column("Status", style="dim")
+            table.add_column("Last Run", style="dim")
+            table.add_column("Last Status", style="dim")
+            for c in cats:
+                table.add_row(
+                    c["name"],
+                    c.get("worker_schedule", "weekly"),
+                    c.get("worker_time", "02:00"),
+                    c.get("worker_status", "active"),
+                    str(c.get("last_worker_run_at", "-"))[:19] if c.get("last_worker_run_at") else "-",
+                    c.get("last_worker_status", "-") or "-",
+                )
+            console.print(table)
+
+        else:
+            console.print(f"[red]Unknown worker action: {worker_action}[/red]")
+            console.print("Available: start, stop, status, schedule")
         return
 
     console.print(f"[red]Unknown action: {action}[/red]")
-    console.print("Available: crawl, categories, browse, fix-data, status")
+    console.print("Available: crawl, categories, browse, fix-data, status, worker")
 
 
 @app.command("db")
@@ -541,12 +648,21 @@ def db_command(
 
     if action == "migrate":
         if settings.db_mode == "supabase":
-            migration_path = (
+            migration_002 = (
                 Path(__file__).parent.parent / "db" / "migrations" / "002_supabase.sql"
             )
-            console.print(f"[blue]SQL migration file:[/blue] {migration_path}")
+            migration_003 = (
+                Path(__file__).parent.parent / "db" / "migrations" / "003_worker.sql"
+            )
+            migration_004 = (
+                Path(__file__).parent.parent / "db" / "migrations" / "004_cached_articles.sql"
+            )
+            console.print("[blue]SQL migration files:[/blue]")
+            console.print(f"  1. {migration_002}")
+            console.print(f"  2. {migration_003}")
+            console.print(f"  3. {migration_004}")
             console.print(
-                "\n[yellow]Run this SQL in Supabase SQL Editor to create tables.[/yellow]"
+                "\n[yellow]Run these SQL files in Supabase SQL Editor (in order).[/yellow]"
             )
             console.print(
                 "Then run [cyan]python -m legal_chatbot db status[/cyan] to verify."
@@ -818,6 +934,274 @@ def search_articles(
     console.print(json.dumps(results, ensure_ascii=False, indent=2))
 
 
+@app.command("db-articles")
+def db_articles(
+    category: str = typer.Argument(None, help="Category name (e.g. dat_dai, lao_dong)"),
+    keyword: str = typer.Option(None, "--keyword", "-q", help="Filter by keyword in content/title"),
+    limit: int = typer.Option(30, "--limit", "-l", help="Max articles to return"),
+):
+    """List articles from DB by category or keyword (no embedding model needed).
+
+    Fast, instant query — no embedding model, no LLM. Just reads from Supabase.
+    Use this for browsing articles or researching a topic by category.
+    """
+    from legal_chatbot.utils.config import get_settings
+
+    settings = get_settings()
+    if settings.db_mode != "supabase":
+        console.print("[red]db-articles requires db_mode=supabase[/red]")
+        return
+
+    from legal_chatbot.db.supabase import get_database
+
+    db = get_database()
+    client = db._read()
+
+    # If no category, list available categories with article counts
+    if category is None and keyword is None:
+        cats = client.table("legal_categories").select("name, display_name, article_count").order("name").execute()
+        if not cats.data:
+            console.print(json.dumps({"categories": [], "message": "Chua co du lieu phap luat nao."}, ensure_ascii=False))
+            return
+        console.print(json.dumps({
+            "categories": [
+                {"name": c["name"], "display_name": c["display_name"], "article_count": c.get("article_count", 0)}
+                for c in cats.data if c.get("article_count", 0) > 0
+            ]
+        }, ensure_ascii=False, indent=2))
+        return
+
+    # Build query
+    # Use PostgREST embedded join to get document_title from legal_documents
+    query = client.table("articles").select(
+        "article_number, title, content, document_id, legal_documents(title, document_number)"
+    )
+
+    # Filter by category
+    if category:
+        # Resolve category_id
+        cat_result = client.table("legal_categories").select("id").eq("name", category).limit(1).execute()
+        if not cat_result.data:
+            console.print(json.dumps({"error": f"Category '{category}' not found", "articles": []}, ensure_ascii=False))
+            return
+        cat_id = cat_result.data[0]["id"]
+
+        # Get document IDs in this category
+        docs = client.table("legal_documents").select("id").eq("category_id", cat_id).execute()
+        if not docs.data:
+            console.print(json.dumps({"error": f"No documents in category '{category}'", "articles": []}, ensure_ascii=False))
+            return
+        doc_ids = [d["id"] for d in docs.data]
+        query = query.in_("document_id", doc_ids)
+
+    # Filter by keyword
+    if keyword:
+        query = query.or_(f"content.ilike.%{keyword}%,title.ilike.%{keyword}%")
+
+    query = query.order("article_number").limit(limit)
+    result = query.execute()
+
+    if not result.data:
+        console.print(json.dumps({"articles": [], "message": f"Khong tim thay articles cho '{category or keyword}'"}, ensure_ascii=False))
+        return
+
+    # Extract document_title from embedded join
+    articles = []
+    for a in result.data:
+        doc_info = a.get("legal_documents") or {}
+        articles.append({
+            "article_number": a.get("article_number"),
+            "title": a.get("title", ""),
+            "document_title": doc_info.get("title", ""),
+            "content": a.get("content", ""),
+        })
+
+    console.print(json.dumps({
+        "category": category,
+        "keyword": keyword,
+        "total": len(articles),
+        "articles": articles,
+    }, ensure_ascii=False, indent=2))
+
+
+@app.command("contract-lookup")
+def contract_lookup(
+    contract_type: str = typer.Argument(None, help="Contract type (e.g. cho_thue_dat)"),
+    list_all: bool = typer.Option(False, "--list", "-l", help="List available templates from DB"),
+):
+    """Look up a contract template with pre-cached articles from DB.
+
+    No embedding model needed — just reads cached data from Supabase.
+    Templates are cached during pipeline crawl (Phase 5).
+
+    Use --list to see all available templates that have been crawled.
+    """
+    from legal_chatbot.utils.config import get_settings
+
+    settings = get_settings()
+    if settings.db_mode != "supabase":
+        console.print("[red]contract-lookup requires db_mode=supabase[/red]")
+        return
+
+    from legal_chatbot.db.supabase import get_database
+
+    db = get_database()
+    client = db._read()
+
+    # --list mode: show available templates from DB
+    if list_all or contract_type is None:
+        all_tmpls = (
+            client.table("contract_templates")
+            .select("contract_type, display_name, cached_at, cached_articles")
+            .order("contract_type")
+            .execute()
+        )
+        if not all_tmpls.data:
+            console.print(json.dumps({"available": [], "message": "Chua co du lieu hop dong nao."}, ensure_ascii=False))
+            return
+
+        available = []
+        for t in all_tmpls.data:
+            cached = t.get("cached_articles") or []
+            available.append({
+                "contract_type": t["contract_type"],
+                "display_name": t["display_name"],
+                "articles_count": len(cached),
+                "cached": bool(t.get("cached_at")),
+            })
+
+        console.print(json.dumps({"available": available}, ensure_ascii=False, indent=2))
+        return
+
+    tmpl = (
+        client.table("contract_templates")
+        .select("*")
+        .eq("contract_type", contract_type)
+        .limit(1)
+        .execute()
+    )
+
+    if not tmpl.data:
+        console.print(f"[red]Template '{contract_type}' not found[/red]")
+        # Show available
+        all_tmpls = client.table("contract_templates").select("contract_type, display_name, cached_at").execute()
+        if all_tmpls.data:
+            console.print("\nAvailable templates:")
+            for t in all_tmpls.data:
+                cached = "cached" if t.get("cached_at") else "no cache"
+                console.print(f"  - {t['contract_type']}: {t['display_name']} ({cached})")
+        else:
+            console.print("[yellow]No templates found.[/yellow]")
+        return
+
+    template = tmpl.data[0]
+    cached_articles = template.get("cached_articles") or []
+    cached_at = template.get("cached_at")
+
+    if not cached_articles:
+        console.print(f"[yellow]Template '{contract_type}' has no cached articles.[/yellow]")
+        return
+
+    # Output the full template + cached articles as JSON
+    output = {
+        "contract_type": template["contract_type"],
+        "display_name": template["display_name"],
+        "description": template.get("description", ""),
+        "required_laws": template.get("required_laws", []),
+        "min_articles": template.get("min_articles", 5),
+        "search_queries": template.get("search_queries", []),
+        "cached_at": cached_at,
+        "articles_count": len(cached_articles),
+        "articles": cached_articles,
+    }
+
+    console.print(json.dumps(output, ensure_ascii=False, indent=2))
+
+
+@app.command("contract-search")
+def contract_search(
+    contract_type: str = typer.Argument(..., help="Contract type (e.g. cho_thue_dat, mua_ban_dat)"),
+    top_k: int = typer.Option(10, "--top-k", "-k", help="Results per query"),
+):
+    """Search all relevant law articles for a contract type using its template.
+
+    Loads the contract template from Supabase, runs all search_queries in a single
+    process (embedding model loaded once), deduplicates, and outputs JSON.
+    """
+    from legal_chatbot.utils.config import get_settings
+
+    settings = get_settings()
+    if settings.db_mode != "supabase":
+        console.print("[red]contract-search requires db_mode=supabase[/red]")
+        return
+
+    from legal_chatbot.services.embedding import EmbeddingService
+    from legal_chatbot.db.supabase import get_database
+
+    db = get_database()
+
+    # Load template from Supabase
+    client = db._read()
+    tmpl_result = (
+        client.table("contract_templates")
+        .select("*")
+        .eq("contract_type", contract_type)
+        .limit(1)
+        .execute()
+    )
+
+    if not tmpl_result.data:
+        console.print(f"[red]Template '{contract_type}' not found in Supabase[/red]")
+        # Show available
+        all_tmpls = client.table("contract_templates").select("contract_type, display_name").execute()
+        if all_tmpls.data:
+            console.print("\nAvailable templates:")
+            for t in all_tmpls.data:
+                console.print(f"  - {t['contract_type']}: {t['display_name']}")
+        return
+
+    tmpl = tmpl_result.data[0]
+    queries = tmpl.get("search_queries", [])
+    if not queries:
+        console.print("[yellow]Template has no search_queries[/yellow]")
+        return
+
+    console.print(f"[blue]{tmpl['display_name']}[/blue]")
+    console.print(f"[dim]Running {len(queries)} queries (model loads once)...[/dim]")
+
+    # Load embedding model ONCE
+    embedding_service = EmbeddingService()
+
+    # Run all queries, merge + dedup results
+    seen_ids = set()
+    all_results = []
+
+    for i, query in enumerate(queries, 1):
+        console.print(f"  [{i}/{len(queries)}] {query[:50]}...")
+        query_embedding = embedding_service.embed_single(query)
+        articles = db.search_articles(query_embedding=query_embedding, top_k=top_k)
+
+        for a in articles:
+            art_key = (a.get("article_number"), a.get("document_title", ""))
+            if art_key not in seen_ids:
+                seen_ids.add(art_key)
+                all_results.append({
+                    "article_number": a.get("article_number"),
+                    "title": a.get("title", ""),
+                    "document_title": a.get("document_title", ""),
+                    "content": a.get("content", ""),
+                    "similarity": round(a.get("similarity", 0), 4),
+                    "query": query,
+                })
+
+    # Sort by similarity descending
+    all_results.sort(key=lambda x: x["similarity"], reverse=True)
+
+    console.print(f"\n[green]Found {len(all_results)} unique articles[/green]")
+    console.print(f"[dim]Min articles required: {tmpl.get('min_articles', 5)}[/dim]")
+    console.print(json.dumps(all_results, ensure_ascii=False, indent=2))
+
+
 @app.command("save-contract")
 def save_contract(
     contract_file: str = typer.Argument(..., help="Path to contract JSON file"),
@@ -1086,6 +1470,60 @@ d) Khong duoc don phuong cham dut hop dong thue nha o, tru cac truong hop quy di
     console.print(f"[green][OK] Added {len(sample_articles)} sample articles[/green]")
     console.print("\nYou can now test chat with:")
     console.print('[cyan]python -m legal_chatbot chat "Dieu kien cho thue nha"[/cyan]')
+
+
+@app.command("seed-templates")
+def seed_templates():
+    """Seed contract templates into Supabase (requires db_mode=supabase)."""
+    from legal_chatbot.utils.config import get_settings
+
+    settings = get_settings()
+    if settings.db_mode != "supabase":
+        console.print("[red]seed-templates requires DB_MODE=supabase[/red]")
+        raise typer.Exit(1)
+
+    from legal_chatbot.db.supabase import get_database
+    from legal_chatbot.services.pipeline import PipelineService, CONTRACT_TEMPLATES
+
+    db = get_database()
+    pipeline = PipelineService(db=db)
+    pipeline.sync_categories()
+
+    count = 0
+    for cat_name in CONTRACT_TEMPLATES:
+        n = pipeline.seed_templates_for_category(cat_name)
+        if n:
+            console.print(f"  [green][OK][/green] {cat_name}: {n} templates")
+        count += n
+
+    console.print(f"\n[green][OK] Seeded {count} contract templates[/green]")
+
+
+@app.command("seed-registry")
+def seed_registry():
+    """Seed document registry entries into Supabase (requires db_mode=supabase)."""
+    from legal_chatbot.utils.config import get_settings
+
+    settings = get_settings()
+    if settings.db_mode != "supabase":
+        console.print("[red]seed-registry requires DB_MODE=supabase[/red]")
+        raise typer.Exit(1)
+
+    from legal_chatbot.db.supabase import get_database
+    from legal_chatbot.services.pipeline import PipelineService, CATEGORIES
+
+    db = get_database()
+    pipeline = PipelineService(db=db)
+    pipeline.sync_categories()
+
+    count = 0
+    for cat_name in CATEGORIES:
+        n = pipeline.seed_registry_for_category(cat_name)
+        if n:
+            console.print(f"  [green][OK][/green] {cat_name}: {n} entries")
+        count += n
+
+    console.print(f"\n[green][OK] Seeded {count} document registry entries[/green]")
 
 
 if __name__ == "__main__":

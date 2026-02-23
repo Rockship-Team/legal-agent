@@ -1,0 +1,404 @@
+{
+  "metadata": {
+    "project_name": "legal_chatbot",
+    "project_type": "single-package",
+    "language": "python",
+    "framework": "typer",
+    "analyzed_at": "2026-02-23T00:00:00Z",
+    "total_loc": 7918,
+    "file_count": 35
+  },
+  "global_context": {
+    "architecture_style": "layered-ddd",
+    "api_pattern": "CLI",
+    "auth_pattern": "supabase-rls-service-role",
+    "database": "supabase-pgvector-or-sqlite",
+    "common_patterns": [
+      "singleton-services",
+      "factory-pattern-db",
+      "async-io-with-sync-cli-bridge",
+      "dual-db-backend",
+      "pydantic-v2-settings",
+      "rich-console-ui",
+      "vietnamese-nfc-normalization"
+    ]
+  },
+  "modules": [
+    {
+      "id": "cli",
+      "name": "CLI Layer",
+      "description": "Typer CLI commands with Rich formatting. 17 commands covering chat, crawl, index, pipeline, contracts, audit, and database management. Entry point for all user interaction.",
+      "type": "api",
+      "paths": ["legal_chatbot/cli/"],
+      "entry_point": "legal_chatbot/cli/main.py",
+      "loc": 1058,
+      "key_functions": [
+        "chat(query, json_output)",
+        "crawl(source, limit, output_dir)",
+        "index(input_path, status)",
+        "pipeline_command(action, category, doc, limit)",
+        "sync_articles(input_file)",
+        "search_articles(query, top_k)",
+        "save_contract(contract_file)",
+        "interactive_chat()",
+        "research(topic, max_sources)",
+        "audit_command(action, audit_id, limit, audit_type)",
+        "db_command(action)",
+        "generate(template_type, output, data, interactive)",
+        "templates()",
+        "template_detail(template_type, fields)",
+        "add_sample()",
+        "init()"
+      ],
+      "data_models": [],
+      "api_contracts": [],
+      "dependencies": [
+        "services/crawler",
+        "services/indexer",
+        "services/generator",
+        "services/interactive_chat",
+        "services/research",
+        "services/pipeline",
+        "services/embedding",
+        "services/audit",
+        "db/supabase",
+        "models/audit",
+        "utils/config"
+      ]
+    },
+    {
+      "id": "services-chat",
+      "name": "Chat Service",
+      "description": "RAG-based legal Q&A with Groq LLM. Dual-backend: Supabase pgvector (production) or ChromaDB+SQLite (fallback). Embeds query, searches articles, builds context, calls LLM, extracts citations.",
+      "type": "core-domain",
+      "paths": ["legal_chatbot/services/chat.py"],
+      "entry_point": "legal_chatbot/services/chat.py",
+      "loc": 308,
+      "key_functions": [
+        "ChatService.chat(query) -> ChatResponse",
+        "ChatService._build_context_supabase(query)",
+        "ChatService._build_context_legacy(query)",
+        "ChatService._extract_citations(response, articles)",
+        "ChatService._suggest_templates(query)",
+        "get_chat_service() -> ChatService"
+      ],
+      "data_models": ["ChatResponse", "Citation"],
+      "api_contracts": [],
+      "dependencies": [
+        "db/chroma",
+        "db/sqlite",
+        "db/supabase",
+        "services/embedding",
+        "services/audit",
+        "models/chat",
+        "utils/config",
+        "utils/vietnamese"
+      ]
+    },
+    {
+      "id": "services-crawler",
+      "name": "Crawler Service",
+      "description": "Async web crawler for thuvienphapluat.vn using Playwright+stealth (Firefox) to bypass Cloudflare. Parses HTML for document metadata. Rate-limited 4-6s between requests.",
+      "type": "infrastructure",
+      "paths": ["legal_chatbot/services/crawler.py"],
+      "entry_point": "legal_chatbot/services/crawler.py",
+      "loc": 306,
+      "key_functions": [
+        "CrawlerService.crawl() -> AsyncIterator[CrawledDocument]",
+        "CrawlerService.crawl_with_stealth(url) -> str",
+        "CrawlerService.crawl_category_listing(url) -> List[dict]",
+        "CrawlerService.compute_content_hash(html) -> str",
+        "CrawlerService._parse_document(html, url) -> CrawledDocument"
+      ],
+      "data_models": ["CrawlConfig", "CrawledDocument"],
+      "api_contracts": [],
+      "dependencies": [
+        "aiohttp",
+        "playwright",
+        "playwright_stealth",
+        "beautifulsoup4"
+      ]
+    },
+    {
+      "id": "services-indexer",
+      "name": "Indexer Service",
+      "description": "Parses crawled HTML into individual law articles. Splits by Điều patterns, handles chapter context, deduplicates by article_number. Stores in SQLite+ChromaDB.",
+      "type": "core-domain",
+      "paths": ["legal_chatbot/services/indexer.py"],
+      "entry_point": "legal_chatbot/services/indexer.py",
+      "loc": 236,
+      "key_functions": [
+        "IndexerService.parse_html_articles(html, document_id) -> List[ParsedArticle]",
+        "IndexerService.index_document(doc) -> IndexResult",
+        "IndexerService.index_from_directory(path) -> IndexResult",
+        "IndexerService.get_index_stats() -> dict"
+      ],
+      "data_models": ["IndexConfig", "ParsedArticle", "IndexResult"],
+      "api_contracts": [],
+      "dependencies": [
+        "db/sqlite",
+        "db/chroma"
+      ]
+    },
+    {
+      "id": "services-embedding",
+      "name": "Embedding Service",
+      "description": "Vietnamese text embeddings using bkai-foundation-models/vietnamese-bi-encoder (768d). Lazy-loads ~1.1GB model. Splits long articles by Khoản (clause) markers at ~380 chars. Batch-optimized.",
+      "type": "infrastructure",
+      "paths": ["legal_chatbot/services/embedding.py"],
+      "entry_point": "legal_chatbot/services/embedding.py",
+      "loc": 178,
+      "key_functions": [
+        "EmbeddingService.get_model() -> SentenceTransformer",
+        "EmbeddingService.embed_single(text) -> List[float]",
+        "EmbeddingService.embed_batch(texts) -> List[List[float]]",
+        "EmbeddingService.embed_and_store(articles, db)",
+        "EmbeddingService.split_long_article(article) -> List[dict]"
+      ],
+      "data_models": [],
+      "api_contracts": [],
+      "dependencies": [
+        "sentence_transformers",
+        "utils/vietnamese"
+      ]
+    },
+    {
+      "id": "services-pipeline",
+      "name": "Pipeline Service",
+      "description": "Full data pipeline: Discovery → Crawl → Index → Validate. Manages 6 law categories with 6-layer category detection (normalize → exact → fuzzy → subject → keyword → LLM). Content hash for change detection.",
+      "type": "core-domain",
+      "paths": ["legal_chatbot/services/pipeline.py"],
+      "entry_point": "legal_chatbot/services/pipeline.py",
+      "loc": 645,
+      "key_functions": [
+        "PipelineService.run(category, limit) -> PipelineRun",
+        "PipelineService.crawl_document(url) -> CrawlResult",
+        "PipelineService.index_document(crawl_result, category_id)",
+        "PipelineService.validate(run_id) -> bool",
+        "PipelineService.ensure_category(name) -> str",
+        "PipelineService.category_from_document_title(title) -> str",
+        "PipelineService.sync_categories()",
+        "PipelineService.list_categories() -> List[dict]"
+      ],
+      "data_models": ["PipelineRun", "CrawlResult", "CategoryConfig"],
+      "api_contracts": [],
+      "dependencies": [
+        "services/crawler",
+        "services/indexer",
+        "services/embedding",
+        "db/supabase",
+        "utils/config",
+        "utils/vietnamese"
+      ]
+    },
+    {
+      "id": "services-research",
+      "name": "Research Service",
+      "description": "Real-time legal research from thuvienphapluat.vn. Crawls search results, extracts articles, analyzes with LLM, detects contract relevance.",
+      "type": "core-domain",
+      "paths": ["legal_chatbot/services/research.py"],
+      "entry_point": "legal_chatbot/services/research.py",
+      "loc": 305,
+      "key_functions": [
+        "ResearchService.research(topic, max_sources) -> ResearchResult",
+        "ResearchService._crawl_search_results(query)",
+        "ResearchService._extract_legal_articles(html)",
+        "ResearchService._analyze_with_llm(content)",
+        "ResearchService._analyze_contract_relevance(content)"
+      ],
+      "data_models": ["ResearchResult"],
+      "api_contracts": [],
+      "dependencies": [
+        "aiohttp",
+        "beautifulsoup4",
+        "groq"
+      ]
+    },
+    {
+      "id": "services-audit",
+      "name": "Audit Service",
+      "description": "Audit trail persistence for research and contract operations. Supabase-only (service role key for RLS bypass). Non-blocking saves with law version tracking.",
+      "type": "infrastructure",
+      "paths": ["legal_chatbot/services/audit.py"],
+      "entry_point": "legal_chatbot/services/audit.py",
+      "loc": 322,
+      "key_functions": [
+        "AuditService.save_research_audit(audit) -> str",
+        "AuditService.save_contract_audit(audit) -> str",
+        "AuditService.list_audits(type, limit) -> List",
+        "AuditService.verify_audit(audit_id) -> dict",
+        "AuditService.build_law_versions(articles) -> List[LawVersion]"
+      ],
+      "data_models": ["ResearchAudit", "ContractAudit", "ArticleSource", "LawVersion"],
+      "api_contracts": [],
+      "dependencies": [
+        "db/supabase",
+        "models/audit"
+      ]
+    },
+    {
+      "id": "services-interactive-chat",
+      "name": "Interactive Chat Service",
+      "description": "Full interactive chatbot with contract creation workflow. State machine (normal ↔ contract_creation). Field-by-field collection, HTML preview, PDF export. Dual LLM (Anthropic/Groq). Largest file at 1203 LOC.",
+      "type": "core-domain",
+      "paths": ["legal_chatbot/services/interactive_chat.py"],
+      "entry_point": "legal_chatbot/services/interactive_chat.py",
+      "loc": 1203,
+      "key_functions": [
+        "InteractiveChatService.chat(session_id, message) -> InteractiveChatResponse",
+        "InteractiveChatService.start_session() -> str",
+        "InteractiveChatService._handle_command(cmd, session)",
+        "InteractiveChatService._handle_natural_input(text, session)",
+        "InteractiveChatService._create_contract(type, session)",
+        "InteractiveChatService._preview_contract(session)",
+        "InteractiveChatService._export_pdf(session)",
+        "InteractiveChatService._research_topic(topic, session)",
+        "InteractiveChatService._detect_contract_type_with_llm(text)"
+      ],
+      "data_models": ["ContractDraft", "ChatSession", "AgentCommand", "InteractiveChatResponse"],
+      "api_contracts": [],
+      "dependencies": [
+        "services/research",
+        "services/dynamic_template",
+        "services/generator",
+        "services/pdf_generator",
+        "services/embedding",
+        "db/supabase",
+        "utils/config"
+      ]
+    },
+    {
+      "id": "services-pdf",
+      "name": "PDF Generation",
+      "description": "Two PDF generators: legacy template-based (generator.py) and universal JSON-to-PDF (pdf_generator.py). ReportLab with Vietnamese font support. 160+ field label mappings.",
+      "type": "utility",
+      "paths": [
+        "legal_chatbot/services/generator.py",
+        "legal_chatbot/services/pdf_generator.py"
+      ],
+      "entry_point": "legal_chatbot/services/pdf_generator.py",
+      "loc": 937,
+      "key_functions": [
+        "UniversalPDFGenerator.generate(contract_json, output_path) -> str",
+        "GeneratorService.list_templates() -> List",
+        "GeneratorService.generate(template_type, data, output) -> str"
+      ],
+      "data_models": [],
+      "api_contracts": [],
+      "dependencies": [
+        "reportlab",
+        "utils/pdf_fonts",
+        "services/audit"
+      ]
+    },
+    {
+      "id": "services-dynamic-template",
+      "name": "Dynamic Template Generator",
+      "description": "Generates contract templates dynamically from hardcoded legal article database. 6 contract types (rental, sale_house, sale_land, sale, service, employment) with 15-25 fields each.",
+      "type": "core-domain",
+      "paths": ["legal_chatbot/services/dynamic_template.py"],
+      "entry_point": "legal_chatbot/services/dynamic_template.py",
+      "loc": 473,
+      "key_functions": [
+        "DynamicTemplateGenerator.generate_template(contract_type) -> DynamicTemplate",
+        "DynamicTemplateGenerator.get_template_info(type) -> dict",
+        "DynamicTemplateGenerator.list_available_types() -> List[str]"
+      ],
+      "data_models": ["DynamicField", "LegalArticle", "DynamicTemplate"],
+      "api_contracts": [],
+      "dependencies": [
+        "groq",
+        "anthropic"
+      ]
+    },
+    {
+      "id": "models",
+      "name": "Data Models",
+      "description": "Pydantic v2 models across 5 files. 20+ models covering legal documents, articles, chat, templates, pipeline, and audit. Enums for DocumentType, DocumentStatus, MessageRole, TemplateType, PipelineStatus.",
+      "type": "core-domain",
+      "paths": ["legal_chatbot/models/"],
+      "entry_point": "legal_chatbot/models/document.py",
+      "loc": 350,
+      "key_functions": [],
+      "data_models": [
+        "LegalCategory",
+        "LegalDocument",
+        "Article",
+        "ArticleWithContext",
+        "DocumentRelation",
+        "Citation",
+        "ChatMessage",
+        "ChatSession",
+        "ChatResponse",
+        "SearchResult",
+        "ContractField",
+        "ContractTemplate",
+        "GeneratedContract",
+        "CategoryConfig",
+        "CrawlResult",
+        "PipelineRun",
+        "LawVersion",
+        "ArticleSource",
+        "ResearchAudit",
+        "ContractAudit"
+      ],
+      "api_contracts": [],
+      "dependencies": []
+    },
+    {
+      "id": "db",
+      "name": "Database Layer",
+      "description": "Abstract DatabaseInterface with 3 implementations: SupabaseClient (pgvector, production), SQLiteClient (local dev), ChromaDB (keyword search fallback). Factory pattern via get_database(). Dual Supabase clients (anon read + service role write).",
+      "type": "infrastructure",
+      "paths": ["legal_chatbot/db/"],
+      "entry_point": "legal_chatbot/db/supabase.py",
+      "loc": 780,
+      "key_functions": [
+        "get_database(mode) -> DatabaseInterface",
+        "SupabaseClient.search_articles(embedding, top_k)",
+        "SupabaseClient.upsert_document(doc) -> str",
+        "SupabaseClient.upsert_articles(articles) -> int",
+        "SupabaseClient.browse_categories() -> List[dict]",
+        "SupabaseClient.browse_documents(category) -> List[dict]",
+        "SQLiteClient.insert_document(doc) -> str",
+        "init_chroma()",
+        "search_articles(query, top_k)"
+      ],
+      "data_models": [],
+      "api_contracts": [],
+      "dependencies": [
+        "supabase-py",
+        "sqlite3",
+        "utils/config"
+      ]
+    },
+    {
+      "id": "utils",
+      "name": "Utilities",
+      "description": "Configuration (23 Settings fields via pydantic-settings), Vietnamese text processing (NFD/NFC normalization, diacritic removal, edit distance, article extraction), PDF font registration (7 Windows fonts).",
+      "type": "utility",
+      "paths": ["legal_chatbot/utils/"],
+      "entry_point": "legal_chatbot/utils/config.py",
+      "loc": 420,
+      "key_functions": [
+        "get_settings() -> Settings",
+        "normalize_vietnamese(text) -> str",
+        "normalize_for_embedding(text) -> str",
+        "normalize_category_name(text) -> str",
+        "remove_diacritics(text) -> str",
+        "edit_distance(a, b) -> int",
+        "extract_article_number(text) -> Optional[int]",
+        "extract_all_article_references(text) -> List[tuple]",
+        "register_vietnamese_fonts() -> bool",
+        "get_font_name(bold, italic) -> str"
+      ],
+      "data_models": ["Settings"],
+      "api_contracts": [],
+      "dependencies": [
+        "pydantic-settings",
+        "python-dotenv",
+        "reportlab"
+      ]
+    }
+  ]
+}

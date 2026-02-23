@@ -1,18 +1,25 @@
-"""Chat agent service with RAG"""
+"""Chat agent service with DB-only RAG (no web search)"""
 
 import logging
 from groq import Groq
 from typing import Optional
-import re
 
 from legal_chatbot.utils.config import get_settings
-from legal_chatbot.db.chroma import search_articles
-from legal_chatbot.db.sqlite import search_articles_by_ids
 from legal_chatbot.models.chat import ChatResponse, Citation
 from legal_chatbot.utils.vietnamese import extract_all_article_references
 
 logger = logging.getLogger(__name__)
 
+
+# Category detection keywords (Vietnamese)
+CATEGORY_KEYWORDS = {
+    "dat_dai": ["đất", "đất đai", "quyền sử dụng đất", "chuyển nhượng đất", "thửa đất"],
+    "nha_o": ["nhà", "nhà ở", "thuê nhà", "mua nhà", "căn hộ", "chung cư"],
+    "lao_dong": ["lao động", "việc làm", "hợp đồng lao động", "tiền lương", "sa thải", "thử việc", "nghỉ việc"],
+    "dan_su": ["dân sự", "vay", "ủy quyền", "dịch vụ", "mua bán", "hợp đồng", "bồi thường"],
+    "doanh_nghiep": ["doanh nghiệp", "công ty", "cổ đông", "thành lập công ty"],
+    "thuong_mai": ["thương mại", "xuất khẩu", "nhập khẩu", "mua bán hàng hóa"],
+}
 
 # System prompt for Vietnamese legal assistant
 SYSTEM_PROMPT = """Bạn là trợ lý pháp lý của một công ty luật Việt Nam.
@@ -31,7 +38,7 @@ Lưu ý quan trọng:
 
 
 class ChatService:
-    """Chat service with RAG capabilities"""
+    """Chat service with DB-only RAG capabilities (no web search)."""
 
     def __init__(self):
         settings = get_settings()
@@ -41,6 +48,8 @@ class ChatService:
         self.max_tokens = settings.llm_max_tokens
         self.top_k = settings.search_top_k
         self._audit = None
+        self._db = None
+        self._embedding = None
 
     @property
     def audit(self):
@@ -54,37 +63,150 @@ class ChatService:
                 self._audit = None
         return self._audit
 
-    def _build_context(self, query: str) -> tuple[str, list[dict]]:
+    @property
+    def db(self):
+        """Lazy-load database client."""
+        if self._db is None:
+            from legal_chatbot.db.supabase import get_database
+            self._db = get_database()
+        return self._db
+
+    @property
+    def embedding(self):
+        """Lazy-load embedding service."""
+        if self._embedding is None:
+            from legal_chatbot.services.embedding import EmbeddingService
+            self._embedding = EmbeddingService()
+        return self._embedding
+
+    def _detect_category(self, query: str) -> Optional[str]:
+        """Detect legal domain from user query.
+
+        Strategy:
+        1. Keyword matching (fast, no API call)
+        2. LLM classification (fallback)
         """
-        Build RAG context from search results.
+        query_lower = query.lower()
 
-        Uses Supabase vector search when db_mode=supabase,
-        falls back to ChromaDB + SQLite for sqlite mode.
+        # Layer 1: Keyword matching
+        best_match = None
+        best_score = 0
+        for category, keywords in CATEGORY_KEYWORDS.items():
+            score = sum(1 for kw in keywords if kw in query_lower)
+            if score > best_score:
+                best_score = score
+                best_match = category
 
-        Returns:
-            Tuple of (context_string, search_results)
+        if best_score > 0:
+            return best_match
+
+        # Layer 2: LLM classification fallback
+        try:
+            categories_str = ", ".join(CATEGORY_KEYWORDS.keys())
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            f"Phân loại câu hỏi pháp lý vào một trong các lĩnh vực: {categories_str}. "
+                            "Chỉ trả về TÊN lĩnh vực, không giải thích. "
+                            "Nếu không xác định được, trả về 'unknown'."
+                        ),
+                    },
+                    {"role": "user", "content": query},
+                ],
+                temperature=0,
+                max_tokens=20,
+            )
+            result = response.choices[0].message.content.strip().lower()
+            if result in CATEGORY_KEYWORDS:
+                return result
+        except Exception as e:
+            logger.warning(f"LLM category detection failed: {e}")
+
+        return None
+
+    def _check_data_availability(self, category: Optional[str]) -> dict:
+        """Check if category has indexed data.
+
+        Returns dict with has_data, article_count, available_categories.
         """
         settings = get_settings()
+        if settings.db_mode != "supabase":
+            return {"has_data": True, "article_count": 0, "available_categories": []}
 
-        if settings.db_mode == "supabase":
-            return self._build_context_supabase(query)
+        try:
+            all_cats = self.db.get_all_categories_with_stats()
 
-        return self._build_context_legacy(query)
+            available = [
+                {
+                    "name": c["name"],
+                    "display_name": c["display_name"],
+                    "article_count": c.get("article_count", 0),
+                    "document_count": c.get("document_count", 0),
+                }
+                for c in all_cats
+                if c.get("article_count", 0) > 0
+            ]
+
+            if category:
+                cat_stats = next(
+                    (c for c in all_cats if c["name"] == category), None
+                )
+                if cat_stats and cat_stats.get("article_count", 0) > 0:
+                    return {
+                        "has_data": True,
+                        "article_count": cat_stats["article_count"],
+                        "available_categories": available,
+                    }
+                else:
+                    return {
+                        "has_data": False,
+                        "article_count": 0,
+                        "available_categories": available,
+                    }
+
+            # No category detected — still have data if any category has articles
+            return {
+                "has_data": len(available) > 0,
+                "article_count": sum(c["article_count"] for c in available),
+                "available_categories": available,
+            }
+        except Exception as e:
+            logger.warning(f"Data availability check failed: {e}")
+            return {"has_data": True, "article_count": 0, "available_categories": []}
+
+    def _build_no_data_message(
+        self, category: Optional[str], available: list[dict]
+    ) -> str:
+        """Generate natural, friendly no-data message."""
+        if category:
+            category_display = category.replace("_", " ")
+            msg = f"Hiện tại mình chưa có dữ liệu về lĩnh vực {category_display} nên không thể tư vấn chính xác được."
+        else:
+            msg = "Mình chưa xác định được lĩnh vực pháp lý của câu hỏi này."
+
+        if available:
+            cat_list = ", ".join(
+                f"{c['display_name']} ({c['article_count']} điều luật)"
+                for c in available
+            )
+            msg += f"\n\nMình có thể giúp bạn về: {cat_list}."
+            msg += "\n\nBạn muốn hỏi về lĩnh vực nào?"
+
+        return msg
+
+    def _build_insufficient_data_message(self, query: str, category: str) -> str:
+        """Generate friendly message when search returns 0 results."""
+        return "Mình không tìm thấy điều luật phù hợp với câu hỏi này. Bạn thử diễn đạt cụ thể hơn?"
 
     def _build_context_supabase(self, query: str) -> tuple[str, list[dict]]:
         """Build context using Supabase vector search."""
         try:
-            from legal_chatbot.services.embedding import EmbeddingService
-            from legal_chatbot.db.supabase import get_database
+            query_embedding = self.embedding.embed_single(query)
 
-            db = get_database()
-            embedding_service = EmbeddingService()
-
-            # Generate query embedding
-            query_embedding = embedding_service.embed_single(query)
-
-            # Semantic search via pgvector RPC
-            articles = db.search_articles(
+            articles = self.db.search_articles(
                 query_embedding=query_embedding,
                 top_k=self.top_k,
             )
@@ -92,7 +214,6 @@ class ChatService:
             if not articles:
                 return "", []
 
-            # Build context string
             context_parts = []
             for article in articles:
                 doc_title = article.get('document_title', 'Văn bản pháp luật')
@@ -109,67 +230,22 @@ class ChatService:
 
             context = "\n\n---\n\n".join(context_parts)
 
-            # Add similarity score as 'score' for downstream compatibility
             for article in articles:
                 if 'similarity' in article and 'score' not in article:
                     article['score'] = article['similarity']
 
             return context, articles
         except Exception as e:
-            logger.warning(f"Supabase search failed, falling back to legacy: {e}")
-            return self._build_context_legacy(query)
-
-    def _build_context_legacy(self, query: str) -> tuple[str, list[dict]]:
-        """Build context using ChromaDB + SQLite (original path)."""
-        # Search for relevant articles
-        search_results = search_articles(query, top_k=self.top_k)
-
-        if not search_results:
+            logger.error(f"Supabase search failed: {e}")
             return "", []
-
-        # Get full article content from SQLite
-        article_ids = [r['id'] for r in search_results]
-        articles = search_articles_by_ids(article_ids)
-
-        # Build context string
-        context_parts = []
-        for article in articles:
-            doc_title = article.get('document_title', 'Văn bản pháp luật')
-            article_num = article.get('article_number', '')
-            article_title = article.get('title', '')
-            content = article.get('content', '')
-
-            header = f"[{doc_title} - Điều {article_num}"
-            if article_title:
-                header += f": {article_title}"
-            header += "]"
-
-            context_parts.append(f"{header}\n{content}")
-
-        context = "\n\n---\n\n".join(context_parts)
-
-        # Merge search results with full articles
-        enriched_results = []
-        for result in search_results:
-            for article in articles:
-                if article['id'] == result['id']:
-                    enriched_results.append({
-                        **result,
-                        **article
-                    })
-                    break
-
-        return context, enriched_results
 
     def _extract_citations(self, answer: str, search_results: list[dict]) -> list[Citation]:
         """Extract citations from the answer text"""
         citations = []
 
-        # Extract article references from answer
         refs = extract_all_article_references(answer)
 
         for article_num, full_match in refs:
-            # Find matching article in search results
             for result in search_results:
                 if result.get('article_number') == article_num:
                     citations.append(Citation(
@@ -181,7 +257,6 @@ class ChatService:
                     ))
                     break
 
-        # Remove duplicates
         seen = set()
         unique_citations = []
         for c in citations:
@@ -212,22 +287,61 @@ class ChatService:
         return suggestions
 
     def chat(self, query: str) -> ChatResponse:
+        """Process a user query using DB-only RAG.
+
+        Flow:
+        1. Detect category from query
+        2. Check data availability
+        3. If no data → return no-data message
+        4. Build context from Supabase
+        5. If empty results → insufficient data message
+        6. Call LLM → response
+        7. Save audit
         """
-        Process a user query and return a response with citations.
+        settings = get_settings()
 
-        Args:
-            query: User's question
+        # Step 1: Detect category
+        category = self._detect_category(query)
 
-        Returns:
-            ChatResponse with answer, citations, and suggestions
-        """
-        # Build RAG context
-        context, search_results = self._build_context(query)
+        # Step 2: Check data availability (supabase mode only)
+        if settings.db_mode == "supabase":
+            availability = self._check_data_availability(category)
 
-        # Build messages
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT}
-        ]
+            # Step 3: No data → friendly message
+            if not availability["has_data"]:
+                no_data_msg = self._build_no_data_message(
+                    category, availability["available_categories"]
+                )
+                return ChatResponse(
+                    answer=no_data_msg,
+                    citations=[],
+                    suggested_templates=[],
+                    follow_up_questions=[],
+                    has_data=False,
+                    category=category,
+                )
+
+        # Step 4: Build RAG context (DB-only)
+        context, search_results = self._build_context_supabase(query)
+
+        # Step 5: Empty results → insufficient data
+        if not context:
+            if settings.db_mode == "supabase":
+                msg = self._build_insufficient_data_message(query, category or "")
+                return ChatResponse(
+                    answer=msg,
+                    citations=[],
+                    suggested_templates=[],
+                    follow_up_questions=[],
+                    has_data=False,
+                    category=category,
+                )
+            # SQLite fallback: still try LLM without context
+            context = ""
+            search_results = []
+
+        # Step 6: Build messages and call LLM
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
         if context:
             user_content = f"""CONTEXT (Các điều luật liên quan):
@@ -247,7 +361,6 @@ Lưu ý: Không tìm thấy điều luật liên quan trong cơ sở dữ liệu
 
         messages.append({"role": "user", "content": user_content})
 
-        # Call Groq API
         response = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
@@ -257,18 +370,19 @@ Lưu ý: Không tìm thấy điều luật liên quan trong cơ sở dữ liệu
 
         answer = response.choices[0].message.content
 
-        # Extract citations and suggestions
         citations = self._extract_citations(answer, search_results)
         suggestions = self._suggest_templates(query, answer)
 
-        response = ChatResponse(
+        chat_response = ChatResponse(
             answer=answer,
             citations=citations,
             suggested_templates=suggestions,
-            follow_up_questions=[]
+            follow_up_questions=[],
+            has_data=True,
+            category=category,
         )
 
-        # Save audit trail (non-blocking, never fails the main operation)
+        # Step 7: Save audit trail
         try:
             if self.audit:
                 from legal_chatbot.models.audit import ArticleSource, ResearchAudit
@@ -293,7 +407,7 @@ Lưu ý: Không tìm thấy điều luật liên quan trong cơ sở dữ liệu
         except Exception as e:
             logger.warning(f"Audit save failed (non-critical): {e}")
 
-        return response
+        return chat_response
 
 
 # Singleton instance

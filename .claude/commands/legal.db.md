@@ -76,8 +76,8 @@ Database [mode] da duoc kiem tra/migrate thanh cong.
 Documents: N | Articles: N
 
 Ban co the:
-- Chay /legal.pipeline crawl de crawl du lieu moi
 - Chay /legal.db status de kiem tra lai
+- Chay /legal.research de tim hieu phap luat
 ```
 
 ## Error Handling

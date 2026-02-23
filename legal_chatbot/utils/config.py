@@ -48,6 +48,16 @@ class Settings(BaseSettings):
     )
     embedding_dimension: int = Field(default=768, description="Embedding vector dimension")
 
+    # Worker settings
+    worker_enabled: bool = Field(default=False, description="Enable background worker")
+    worker_default_schedule: str = Field(default="weekly", description="Default schedule: daily, weekly, monthly")
+    worker_default_time: str = Field(default="02:00", description="Default run time (HH:MM, UTC+7)")
+    worker_retry_count: int = Field(default=3, description="Max retry attempts per category")
+    worker_retry_backoff: int = Field(default=30, description="Base backoff seconds (exponential)")
+
+    # Chat mode
+    chat_mode: str = Field(default="db_only", description="Chat mode: db_only")
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
