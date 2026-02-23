@@ -2,19 +2,70 @@
 
 ## 1. Tổng quan
 
-### 1.1 Vấn đề hiện tại
+### 1.1 User Problem
 
-Hệ thống pipeline hiện tại (002) có những hạn chế nghiêm trọng:
+**User gặp phải 3 vấn đề chính khi sử dụng hệ thống hiện tại:**
 
-1. **Pipeline chạy thủ công**: Không có scheduler/worker — admin phải gõ CLI mỗi lần muốn cập nhật luật
-2. **Chat vẫn phụ thuộc web search**: `research.py` luôn crawl real-time từ thuvienphapluat.vn → chậm, không ổn định, bị Cloudflare block
-3. **Không phân biệt "có data" vs "chưa có data"**: Khi user hỏi về bộ luật chưa crawl, hệ thống vẫn cố search → trả kết quả sai hoặc trống
-4. **Pipeline crawl theo category chung**: Không target cụ thể một bộ luật → crawl dư thừa, thiếu kiểm soát
-5. **Không có cơ chế detect thay đổi tự động**: Phải manual compare content hash
-6. **Create-contract phụ thuộc web search**: `legal.create-contract` phải WebSearch tìm điều luật → chậm, không ổn định, kết quả không đồng nhất giữa các lần tạo
-7. **Không có contract templates sẵn**: Mỗi lần tạo hợp đồng phải research lại từ đầu, dù cùng lĩnh vực (ví dụ: tạo 2 hợp đồng thuê đất khác nhau phải search lại 2 lần)
+1. **Chat chậm và không ổn định**: Mỗi câu hỏi pháp luật phải chờ web search (5-15s), thường bị Cloudflare block → timeout hoặc trả kết quả sai
+2. **Tạo hợp đồng không nhất quán**: Cùng loại hợp đồng, tạo 2 lần cho kết quả khác nhau vì mỗi lần web search ra kết quả khác
+3. **Không biết hệ thống hỗ trợ gì**: Khi hỏi về bộ luật chưa có data, hệ thống vẫn cố trả lời → kết quả sai, mất tin tưởng
 
-### 1.2 Mục tiêu thiết kế lại
+### 1.2 Giải pháp
+
+Chuyển sang **DB-First**: Mọi tương tác (chat, research, tạo hợp đồng) chỉ dùng data đã index trong Supabase. Background worker tự động cập nhật data.
+
+### 1.3 Definition of Done (DOD)
+
+| # | Tiêu chí | Cách kiểm tra |
+|---|----------|---------------|
+| 1 | Chat trả lời < 3s (không web search) | Đo response time khi chat về lĩnh vực đã có data |
+| 2 | Chat trả "chưa đủ dữ liệu" khi không có data | Hỏi về bảo hiểm xã hội (chưa crawl) → nhận thông báo rõ ràng |
+| 3 | Create-contract cho kết quả nhất quán | Tạo 2 HĐ mua bán đất → cùng citations, cùng điều luật |
+| 4 | Create-contract không web search | Toàn bộ flow không gọi web, chỉ DB |
+| 5 | Worker tự động cập nhật luật | Để worker chạy → kiểm tra pipeline_runs có log mới |
+| 6 | Incremental crawl hoạt động | Chạy crawl 2 lần → lần 2 skip docs unchanged |
+| 7 | App hiển thị rõ hỗ trợ bộ luật nào | User thấy danh sách categories + số articles đã có |
+
+### 1.4 Vấn đề kỹ thuật hiện tại (002)
+
+1. **Pipeline chạy thủ công**: Không có scheduler — admin phải gõ CLI mỗi lần muốn cập nhật
+2. **Chat phụ thuộc web search**: `research.py` crawl real-time → chậm, bị Cloudflare block
+3. **Không phân biệt "có data" vs "chưa có data"**: Hệ thống cố search → trả kết quả sai
+4. **Pipeline crawl theo category chung**: Không target cụ thể bộ luật
+5. **Create-contract phụ thuộc web search**: Kết quả không đồng nhất giữa các lần tạo
+6. **Không có contract templates sẵn**: Mỗi lần tạo HĐ phải research lại từ đầu
+
+### 1.5 Thống kê bộ luật Việt Nam vs App Coverage
+
+Việt Nam hiện có **~266 luật/bộ luật** đang có hiệu lực, trong đó **6 bộ luật lớn** và ~260 luật riêng lẻ. Cho mục đích **tư vấn pháp luật và tạo hợp đồng**, có khoảng **36 luật quan trọng** nhất.
+
+#### App hiện đang hỗ trợ (đã crawl/có thể crawl)
+
+| Category | Bộ luật chính | Trạng thái | Contract types |
+|----------|---------------|-----------|----------------|
+| `dat_dai` | Luật Đất đai 2024 (31/2024/QH15) | **Đã crawl** | mua bán đất, cho thuê, chuyển nhượng, thế chấp |
+| `nha_o` | Luật Nhà ở 2023 (27/2023/QH15) | **Đã crawl** | mua bán nhà, thuê nhà, đặt cọc |
+| `dan_su` | Bộ luật Dân sự 2015 (91/2015/QH13) | **Đã crawl** | vay tiền, ủy quyền, dịch vụ, mua bán tài sản |
+| `lao_dong` | Bộ luật Lao động 2019 (45/2019/QH14) | **Đã crawl** | HĐLĐ, thử việc, chấm dứt HĐLĐ |
+| `doanh_nghiep` | Luật Doanh nghiệp 2020 (59/2020/QH14) | Chưa crawl | - |
+| `thuong_mai` | Luật Thương mại 2005 (36/2005/QH11) | Chưa crawl | - |
+
+#### App chưa hỗ trợ (có thể mở rộng sau)
+
+| Lĩnh vực | Luật chính | Lý do chưa hỗ trợ |
+|-----------|-----------|-------------------|
+| Bảo hiểm xã hội | Luật BHXH 2024 (41/2024/QH15) | Ít liên quan đến hợp đồng dân sự |
+| Thuế | Luật Thuế GTGT 2024, Thuế TNDN | Chuyên biệt, cần domain expert |
+| Sở hữu trí tuệ | Luật SHTT 2005 (sửa đổi 2022) | Chuyên biệt |
+| Xây dựng | Luật Xây dựng 2014 (sửa đổi 2020) | Có thể thêm phase sau |
+| Kinh doanh BĐS | Luật KDBĐS 2023 (29/2023/QH15) | Đã là `related` trong `dat_dai` |
+| Hình sự | Bộ luật Hình sự 2015 | Ngoài scope (không tạo HĐ) |
+
+**Tổng kết**: App target **6 lĩnh vực chính** / 36 luật quan trọng cho hợp đồng. Hiện đã crawl **4/6 lĩnh vực**.
+
+---
+
+### 1.6 Mục tiêu thiết kế lại
 
 ```
 TRƯỚC (002):
@@ -41,7 +92,7 @@ SAU (003):
 ═══ Scenario 1: Bộ luật ĐÃ CÓ data ═══
 
 Admin đã chạy:  /legal.pipeline crawl dat_dai
-Worker chạy ngầm: cập nhật Luật Đất đai mỗi ngày lúc 2:00 AM
+Worker chạy ngầm: check cập nhật Luật Đất đai mỗi tuần (Chủ nhật 2:00 AM)
 
 User: "Điều kiện chuyển nhượng quyền sử dụng đất?"
 
@@ -57,14 +108,22 @@ User: "Quy định về bảo hiểm xã hội?"
 
 Agent:
   1. Vector search Supabase → 0 results (category 'bao_hiem' chưa crawl)
-  2. Trả lời: "⚠ Hệ thống chưa có dữ liệu về lĩnh vực Bảo hiểm xã hội.
-              Vui lòng liên hệ admin để đồng bộ bộ luật này,
-              hoặc thử hỏi về các lĩnh vực đã có: Đất đai, Nhà ở, Dân sự..."
+  2. Trả lời tự nhiên (giọng AI chat, không cứng nhắc):
+     "Hiện tại mình chưa có dữ liệu về lĩnh vực Bảo hiểm xã hội
+      nên không thể tư vấn chính xác được. 😊
+
+      Mình có thể giúp bạn về:
+      • Đất đai (2,450 điều luật)
+      • Nhà ở (1,200 điều luật)
+      • Dân sự (689 điều luật)
+      • Lao động (220 điều luật)
+
+      Bạn muốn hỏi về lĩnh vực nào?"
   3. KHÔNG cố web search hay trả lời bừa
 
 ═══ Scenario 3: Worker phát hiện luật thay đổi ═══
 
-Worker (2:00 AM daily):
+Worker (Chủ nhật 2:00 AM weekly):
   1. Check thuvienphapluat.vn → Luật Đất đai có nghị định mới
   2. Crawl nghị định mới → parse → embed → upsert
   3. Cập nhật status văn bản cũ (nếu bị thay thế)
@@ -95,14 +154,17 @@ User: /legal.create-contract hợp đồng bảo hiểm
 
 Agent:
   1. Detect category = "bao_hiem" → CHƯA có data
-  2. Trả lời: "⚠ Chưa đủ dữ liệu pháp luật về lĩnh vực Bảo hiểm
-              để tạo hợp đồng. Vui lòng liên hệ admin để đồng bộ
-              Luật Kinh doanh bảo hiểm trước.
+  2. Trả lời tự nhiên:
+     "Mình chưa có đủ dữ liệu về Luật Bảo hiểm để tạo hợp đồng
+      chính xác cho bạn. 😊
 
-              Hiện có thể tạo hợp đồng cho:
-                • Đất đai: mua bán đất, cho thuê đất, chuyển nhượng
-                • Nhà ở: thuê nhà, mua bán nhà
-                • Lao động: hợp đồng lao động, thử việc"
+      Hiện mình có thể tạo các loại hợp đồng sau:
+      • Đất đai: mua bán đất, cho thuê đất, chuyển nhượng QSDĐ
+      • Nhà ở: thuê nhà, mua bán nhà, đặt cọc
+      • Lao động: HĐLĐ, thử việc
+      • Dân sự: vay tiền, ủy quyền, dịch vụ
+
+      Bạn muốn tạo loại nào?"
   3. KHÔNG cố tạo hợp đồng bằng web search
 ```
 
@@ -133,7 +195,7 @@ Agent:
 | Yêu cầu | Mô tả |
 |----------|--------|
 | **Chạy ngầm** | Worker process chạy liên tục, không cần CLI trigger |
-| **Schedule** | Mỗi bộ luật có lịch cập nhật riêng (mặc định daily 2:00 AM) |
+| **Schedule** | Mỗi bộ luật có lịch cập nhật riêng (mặc định **weekly** — luật ít thay đổi) |
 | **Incremental** | Chỉ crawl/update văn bản mới hoặc thay đổi (content hash compare) |
 | **Logging** | Ghi log mỗi lần chạy vào `pipeline_runs` table |
 | **Error recovery** | Nếu worker fail → retry 3 lần → log error → tiếp tục bộ luật khác |
@@ -402,10 +464,10 @@ User: /legal.create-contract [loại hợp đồng]
 │  │                                                        │  │
 │  │  Cron Jobs:                                            │  │
 │  │  ┌──────────────────────────────────────────────────┐  │  │
-│  │  │ dat_dai    │ daily  │ 02:00 AM │ active │ 6 URLs │  │  │
-│  │  │ nha_o      │ daily  │ 02:30 AM │ active │ 3 URLs │  │  │
+│  │  │ dat_dai    │ weekly │ Sun 2AM  │ active │ 6 URLs │  │  │
+│  │  │ nha_o      │ weekly │ Sun 2:30 │ active │ 3 URLs │  │  │
 │  │  │ dan_su     │ weekly │ Sun 3AM  │ active │ 2 URLs │  │  │
-│  │  │ lao_dong   │ daily  │ 03:00 AM │ paused │ 4 URLs │  │  │
+│  │  │ lao_dong   │ weekly │ Sun 3:30 │ paused │ 4 URLs │  │  │
 │  │  └──────────────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────────┘  │
 │                          │                                    │
@@ -456,7 +518,7 @@ User: /legal.create-contract [loại hợp đồng]
 │    base:                                                     │
 │      - Bộ luật Dân sự 2015 (phần hợp đồng)                  │
 │    listing_url: thuvienphapluat.vn/van-ban/Bat-dong-san/     │
-│    schedule: daily 02:00                                      │
+│    schedule: weekly Sun 02:00                                      │
 │                                                              │
 │  dan_su:                                                     │
 │    primary:                                                  │
@@ -474,7 +536,7 @@ User: /legal.create-contract [loại hợp đồng]
 
 ```sql
 ALTER TABLE legal_categories ADD COLUMN IF NOT EXISTS
-  worker_schedule TEXT DEFAULT 'daily';          -- 'daily', 'weekly', 'monthly'
+  worker_schedule TEXT DEFAULT 'weekly';          -- 'daily', 'weekly', 'monthly'
 
 ALTER TABLE legal_categories ADD COLUMN IF NOT EXISTS
   worker_time TEXT DEFAULT '02:00';              -- Giờ chạy (HH:MM, UTC+7)
@@ -604,323 +666,62 @@ Các bảng sau giữ nguyên từ 002:
 
 ---
 
-## 5. Chi tiết thay đổi Code
+## 5. Thay đổi chính (WHAT, không phải HOW)
+
+> Chi tiết implementation: xem `specs/003-change-data-pipeline/contracts/` và `plan.md`
 
 ### 5.1 `services/chat.py` — DB-Only RAG
 
-**Thay đổi chính**: Loại bỏ mọi web search, thêm logic "no data".
+| Thay đổi | Mô tả |
+|----------|--------|
+| **Xóa** web search fallback | Chat chỉ query Supabase, không gọi `research.py` |
+| **Thêm** `_detect_category(query)` | Keyword + LLM classify → xác định lĩnh vực |
+| **Thêm** `_check_data_availability()` | Check `article_count > 0` → trả no-data message nếu thiếu |
+| **Xóa** `_build_context_legacy()` | Không dùng ChromaDB nữa |
 
-```python
-# TRƯỚC (002):
-async def chat(query):
-    context = await _build_context(query)          # Vector search
-    # Nếu ít results → gọi thêm web search (research.py)
-    response = await _call_llm(context, query)
-    return response
+### 5.2 `services/research.py` — DB-Only Deep Search
 
-# SAU (003):
-async def chat(query):
-    # Step 1: Detect topic/category
-    category = await _detect_category(query)
-
-    # Step 2: Check data availability
-    availability = await _check_data_availability(category)
-
-    if not availability.has_data:
-        return ChatResponse(
-            answer=_build_no_data_message(category, availability.available_categories),
-            citations=[],
-            has_data=False
-        )
-
-    # Step 3: Vector search (DB only)
-    context = await _build_context_supabase(query)
-
-    if not context.articles:
-        return ChatResponse(
-            answer=_build_insufficient_data_message(query, category),
-            citations=[],
-            has_data=False
-        )
-
-    # Step 4: LLM with DB context only
-    response = await _call_llm(context, query)
-
-    # Step 5: Audit
-    await _save_audit(query, context, response)
-
-    return response
-```
-
-**Methods mới**:
-
-| Method | Mô tả |
-|--------|--------|
-| `_detect_category(query)` | Dùng keyword matching + LLM classify để xác định lĩnh vực |
-| `_check_data_availability(category)` | Query `legal_categories` → check `article_count > 0` |
-| `_build_no_data_message(category, available)` | Sinh message "Chưa đủ dữ liệu" + gợi ý |
-| `_build_insufficient_data_message(query, cat)` | Khi có category nhưng search 0 results |
-
-**Xóa/Deprecate**:
-- `_build_context_legacy()` — Không dùng ChromaDB nữa
-- Tất cả tham chiếu đến `research.py` trong chat flow
-
-### 5.2 `services/research.py` — Chuyển sang DB-Only
-
-**Thay đổi chính**: Không crawl web nữa, chỉ deep query từ DB.
-
-```python
-# TRƯỚC (002):
-async def research(query):
-    urls = _search_documents(query)        # Construct search URLs
-    content = await _fetch_and_parse(urls)  # Crawl thuvienphapluat.vn
-    articles = _extract_legal_articles(content)
-    analysis = await _analyze_with_llm(articles, query)
-    return analysis
-
-# SAU (003):
-async def research(query):
-    # Deep search trong DB (nhiều results hơn chat)
-    articles = await _deep_search_db(query, top_k=20)
-
-    if not articles:
-        return ResearchResult(
-            answer="Chưa đủ dữ liệu để nghiên cứu chủ đề này.",
-            available_categories=await _get_available_categories()
-        )
-
-    # Cross-reference giữa các văn bản
-    related_docs = await _find_related_documents(articles)
-
-    # LLM deep analysis
-    analysis = await _analyze_with_llm(articles, related_docs, query)
-
-    return analysis
-```
+| Thay đổi | Mô tả |
+|----------|--------|
+| **Xóa** web crawl | Không crawl thuvienphapluat.vn real-time nữa |
+| **Thêm** deep DB search | `top_k=20` (nhiều hơn chat), cross-reference giữa văn bản |
+| **Thêm** no-data response | Trả danh sách categories khả dụng khi không có data |
 
 ### 5.3 `services/worker.py` — Background Worker (MỚI)
 
-```python
-"""
-Background worker chạy pipeline tự động.
+| Tính năng | Mô tả |
+|-----------|--------|
+| APScheduler AsyncIOScheduler | Mỗi category = 1 cron job, schedule đọc từ DB |
+| Retry logic | 3 lần, exponential backoff (30s, 60s, 120s) |
+| Graceful shutdown | SIGINT/SIGBREAK handler, `scheduler.shutdown(wait=True)` |
+| Status/Schedule API | `get_status()`, `get_schedule()` cho CLI hiển thị |
 
-Sử dụng APScheduler với BackgroundScheduler:
-- Mỗi category có 1 cron job riêng
-- Schedule đọc từ legal_categories table
-- Retry logic: 3 lần, exponential backoff
-- Graceful shutdown khi nhận SIGTERM/SIGINT
-"""
+### 5.4 `services/pipeline.py` — Incremental Update
 
-class PipelineWorker:
-    def __init__(self, config: Settings):
-        self.scheduler = BackgroundScheduler(
-            timezone="Asia/Ho_Chi_Minh",
-            job_defaults={
-                'coalesce': True,           # Gộp missed runs
-                'max_instances': 1,          # Không chạy song song
-                'misfire_grace_time': 3600   # Cho phép trễ 1 giờ
-            }
-        )
-        self.pipeline = PipelineService(config)
-        self.is_running = False
+| Thay đổi | Mô tả |
+|----------|--------|
+| **Đọc URLs từ `document_registry`** | Không hardcode URLs nữa |
+| **Content hash comparison** | SHA-256, skip unchanged docs |
+| **trigger_type tracking** | `manual`, `scheduled`, `forced` |
+| **Category stats update** | Cập nhật `document_count`, `article_count` sau mỗi run |
 
-    async def start(self):
-        """Khởi động worker, load schedule từ DB."""
-        categories = await self._load_active_categories()
-        for cat in categories:
-            self._add_job(cat)
-        self.scheduler.start()
-        self.is_running = True
+### 5.5 `services/contract.py` — Contract Service (MỚI)
 
-    def stop(self):
-        """Dừng worker gracefully."""
-        self.scheduler.shutdown(wait=True)
-        self.is_running = False
+| Tính năng | Mô tả |
+|-----------|--------|
+| Load template từ DB | Pre-mapped search queries, required_laws, min_articles |
+| Multi-query vector search | Search từng query → merge + dedup articles |
+| Data validation | Check ≥ min_articles trước khi tạo HĐ |
+| No-data handling | Trả danh sách contract types khả dụng |
 
-    def _add_job(self, category: CategoryConfig):
-        """Thêm cron job cho 1 category."""
-        if category.worker_schedule == 'daily':
-            trigger = CronTrigger(
-                hour=int(category.worker_time.split(':')[0]),
-                minute=int(category.worker_time.split(':')[1])
-            )
-        elif category.worker_schedule == 'weekly':
-            trigger = CronTrigger(day_of_week='sun', hour=3)
-        # ...
-
-        self.scheduler.add_job(
-            self._run_pipeline_for_category,
-            trigger=trigger,
-            id=f"pipeline_{category.name}",
-            name=f"Update {category.display_name}",
-            args=[category.name],
-            replace_existing=True
-        )
-
-    async def _run_pipeline_for_category(self, category_name: str):
-        """Chạy pipeline cho 1 category với retry."""
-        for attempt in range(3):
-            try:
-                result = await self.pipeline.run(
-                    category=category_name,
-                    trigger_type='scheduled'
-                )
-                await self._update_category_stats(category_name, result)
-                return
-            except Exception as e:
-                wait = 30 * (2 ** attempt)  # 30s, 60s, 120s
-                logger.error(f"Attempt {attempt+1} failed for {category_name}: {e}")
-                if attempt < 2:
-                    await asyncio.sleep(wait)
-
-        # Tất cả retry fail
-        await self._log_failure(category_name)
-
-    def get_status(self) -> dict:
-        """Trả về trạng thái worker + lịch chạy."""
-        jobs = self.scheduler.get_jobs()
-        return {
-            'is_running': self.is_running,
-            'jobs': [
-                {
-                    'id': job.id,
-                    'name': job.name,
-                    'next_run': str(job.next_run_time),
-                    'last_run': str(getattr(job, 'last_run_time', None))
-                }
-                for job in jobs
-            ]
-        }
-```
-
-### 5.4 `services/pipeline.py` — Bổ sung incremental update
-
-**Thay đổi chính**: Hỗ trợ incremental crawl + document registry.
-
-```python
-# Thêm vào pipeline.run():
-async def run(self, category: str, trigger_type: str = 'manual', force: bool = False):
-    """
-    Chạy pipeline cho 1 category.
-
-    Thay đổi so với 002:
-    - Đọc URLs từ document_registry table (không hardcode)
-    - Incremental: check ETag/Last-Modified trước khi crawl
-    - Ghi trigger_type vào pipeline_runs
-    - Cập nhật category stats sau khi xong
-    """
-    run_id = await self._create_pipeline_run(category, trigger_type)
-
-    # Lấy document URLs từ registry
-    registry = await self._get_document_registry(category)
-
-    skipped = 0
-    for doc_entry in registry:
-        if not force:
-            # Check if content changed (HEAD request)
-            changed = await self._check_document_changed(doc_entry)
-            if not changed:
-                skipped += 1
-                continue
-
-        # Crawl → Parse → Embed → Upsert (giữ logic hiện tại)
-        await self._process_document(doc_entry)
-
-    # Cập nhật stats
-    await self._finalize_run(run_id, skipped=skipped)
-    await self._update_category_counts(category)
-```
-
-### 5.5 `cli/main.py` — Thêm worker commands
-
-```python
-@pipeline_app.command("worker")
-def worker_command(
-    action: str = typer.Argument(help="start | stop | status | schedule"),
-):
-    """Quản lý background worker."""
-    if action == "start":
-        # Khởi động worker trong background thread
-        worker = PipelineWorker(get_settings())
-        asyncio.run(worker.start())
-        console.print("[green]✓ Worker started[/green]")
-
-    elif action == "stop":
-        # Signal worker dừng
-        ...
-
-    elif action == "status":
-        # Hiển thị trạng thái
-        status = worker.get_status()
-        _display_worker_status(status)
-
-    elif action == "schedule":
-        # Hiển thị lịch chạy
-        _display_schedule()
-```
-
-### 5.6 `legal.create-contract` Slash Command — DB-Only
-
-**Thay đổi chính**: Loại bỏ WebSearch (step 2b cũ), thay bằng DB-only flow.
-
-```python
-# TRƯỚC (002 — legal.create-contract.md):
-# Step 2a: Search Supabase articles
-# Step 2b: LUÔN search web (WebSearch) ← XÓA
-# Step 2c: Check hợp đồng cũ trong Supabase
-# Step 2d: So sánh & sync điều luật mới ← XÓA (worker đã làm)
-
-# SAU (003):
-# Step 1: Detect contract_type + category
-# Step 2: Check data availability (category có data không?)
-# Step 3: Load contract template config (queries, required_laws, min_articles)
-# Step 4: Multi-query DB search (dùng pre-mapped queries)
-# Step 5: Validate đủ articles (≥ min_articles)
-# Step 6: Hỏi user thông tin (dùng required_fields từ template)
-# Step 7: Generate articles (ĐIỀU 1-9) từ DB data
-# Step 8: Save JSON + Supabase audit
-```
-
-**Thay đổi trong slash command file** (`legal.create-contract.md`):
+### 5.6 `legal.create-contract` Slash Command
 
 | Bước cũ | Thay đổi |
 |---------|----------|
 | Step 2b: LUÔN search web | **XÓA** — Không web search nữa |
-| Step 2d: So sánh & sync từ web | **XÓA** — Worker đã tự động sync hàng ngày |
-| Step 2a: Search Supabase | **GIỮ** — Nhưng dùng pre-mapped queries từ template |
-| Step 2c: Check hợp đồng cũ | **GIỮ** — Vẫn check contract_audits |
-| Fallback WebSearch | **XÓA** — Không fallback, trả "chưa đủ data" |
-
-**Flow mới cho slash command:**
-
-```
-/legal.create-contract mua bán đất
-
-1. Parse → contract_type = "mua_ban_dat", category = "dat_dai"
-
-2. Check category "dat_dai" trong DB:
-   → Có 2,450 articles từ 6 văn bản ✓
-
-3. Load template "mua_ban_dat":
-   → search_queries: ["điều kiện chuyển nhượng...", ...]
-   → required_laws: ["Luật Đất đai 2024", "BLDS 2015"]
-   → min_articles: 10
-
-4. Multi-query search:
-   → Query 1: "điều kiện chuyển nhượng" → 5 articles
-   → Query 2: "hợp đồng chuyển nhượng"  → 4 articles
-   → Query 3: "nghĩa vụ bên chuyển nhượng" → 6 articles
-   → Query 4: "giá đất thanh toán" → 3 articles
-   → Merge + dedup → 15 unique articles ✓ (≥ 10)
-
-5. Thông báo:
-   "Đã tìm thấy 15 điều luật liên quan trong cơ sở dữ liệu!
-    - Luật Đất đai 2024: 10 điều
-    - BLDS 2015: 5 điều
-    Bắt đầu thu thập thông tin..."
-
-6. Hỏi user → Generate → Save
-```
+| Step 2d: So sánh & sync từ web | **XÓA** — Worker đã tự động sync |
+| Step 2a: Search Supabase | **GIỮ** — Dùng pre-mapped queries từ template |
+| Fallback WebSearch | **XÓA** — Trả "chưa đủ data" thay vì cố search |
 
 ---
 
@@ -958,64 +759,60 @@ def worker_command(
 
 ### 7.1 Khi category không tồn tại hoặc chưa crawl
 
+**Nguyên tắc**: Response phải tự nhiên, thân thiện — đây là AI chat, không phải error message. Giọng điệu: helpful assistant, không cứng nhắc.
+
 ```
-⚠ Hệ thống chưa có dữ liệu về lĩnh vực "{category_display_name}".
+Hiện tại mình chưa có dữ liệu về lĩnh vực {category_display_name}
+nên không thể tư vấn chính xác được. 😊
 
-Hiện tại hệ thống đã có dữ liệu cho các lĩnh vực sau:
-  • Đất đai (2,450 điều luật từ 6 văn bản)
-  • Dân sự (689 điều luật từ 2 văn bản)
-  • Lao động (220 điều luật từ 4 văn bản)
+Mình có thể giúp bạn về:
+  • Đất đai ({article_count} điều luật)
+  • Nhà ở ({article_count} điều luật)
+  • Dân sự ({article_count} điều luật)
+  • Lao động ({article_count} điều luật)
 
-Bạn có thể:
-  1. Hỏi về các lĩnh vực trên
-  2. Liên hệ admin để bổ sung bộ luật mới
-
-Lưu ý: Hệ thống chỉ trả lời dựa trên dữ liệu pháp luật đã được
-xác minh trong cơ sở dữ liệu, không sử dụng nguồn bên ngoài.
+Bạn muốn hỏi về lĩnh vực nào?
 ```
 
 ### 7.2 Khi create-contract nhưng chưa có data
 
 ```
-⚠ Chưa đủ dữ liệu pháp luật để tạo hợp đồng "{contract_type_vn}".
+Mình chưa có đủ dữ liệu pháp luật về {category_display_name}
+để tạo hợp đồng {contract_type_vn} chính xác cho bạn.
 
-Lĩnh vực "{category_display_name}" chưa được đồng bộ vào hệ thống.
-Vui lòng liên hệ admin chạy: /legal.pipeline crawl {category_name}
+Hiện mình có thể tạo:
+  • Đất đai: mua bán đất, cho thuê đất, chuyển nhượng, thế chấp
+  • Nhà ở: mua bán nhà, thuê nhà, đặt cọc
+  • Lao động: HĐLĐ, thử việc, chấm dứt HĐLĐ
+  • Dân sự: vay tiền, ủy quyền, dịch vụ, mua bán tài sản
 
-Hiện có thể tạo các loại hợp đồng sau:
-  Đất đai:
-    • Mua bán đất    • Cho thuê đất    • Chuyển nhượng QSDĐ
-  Nhà ở:
-    • Mua bán nhà    • Thuê nhà        • Đặt cọc mua nhà
-  Lao động:
-    • Hợp đồng lao động    • Thử việc
-  Dân sự:
-    • Vay tiền    • Ủy quyền    • Dịch vụ
+Bạn muốn tạo loại nào?
 ```
 
 ### 7.3 Khi create-contract nhưng data không đủ (< min_articles)
 
 ```
-⚠ Dữ liệu pháp luật cho "{contract_type_vn}" chưa đầy đủ.
+Mình tìm được {found} điều luật liên quan, nhưng thường cần
+ít nhất {min_articles} điều để tạo hợp đồng đầy đủ.
 
-Tìm thấy {found} điều luật, cần tối thiểu {min_articles} điều.
-Thiếu dữ liệu từ: {missing_laws}
+Có thể thiếu một số điều khoản từ: {missing_laws}
 
-Bạn có muốn:
-  1. Tiếp tục tạo hợp đồng (có thể thiếu một số điều khoản)
-  2. Hủy và đợi admin bổ sung dữ liệu
+Bạn muốn:
+  1. Tiếp tục tạo (mình sẽ ghi chú phần nào cần bổ sung)
+  2. Dừng lại để bổ sung dữ liệu trước
 ```
 
 ### 7.4 Khi có category nhưng search không ra kết quả phù hợp
 
 ```
-Không tìm thấy điều luật phù hợp cho câu hỏi của bạn trong
-lĩnh vực "{category_display_name}".
+Mình không tìm thấy điều luật phù hợp với câu hỏi này trong
+lĩnh vực {category_display_name} ({article_count} điều luật).
 
-Hệ thống có {article_count} điều luật trong lĩnh vực này.
-Bạn có thể thử:
-  • Diễn đạt câu hỏi khác
-  • Hỏi cụ thể hơn (ví dụ: "Điều 45 Luật Đất đai 2024")
+Bạn thử:
+  • Diễn đạt cụ thể hơn (ví dụ: "Điều 45 Luật Đất đai 2024")
+  • Hỏi theo hướng khác
+
+Mình sẵn sàng hỗ trợ! 😊
 ```
 
 ---
@@ -1110,8 +907,8 @@ Worker check listing page:
 ```bash
 # Worker settings (NEW)
 WORKER_ENABLED=true                           # Bật/tắt worker khi start app
-WORKER_DEFAULT_SCHEDULE=daily                 # 'daily', 'weekly'
-WORKER_DEFAULT_TIME=02:00                     # UTC+7
+WORKER_DEFAULT_SCHEDULE=weekly                # 'weekly', 'monthly' (luật ít thay đổi)
+WORKER_DEFAULT_TIME=02:00                     # UTC+7, chạy Chủ nhật
 WORKER_RETRY_COUNT=3                          # Số lần retry khi fail
 WORKER_RETRY_BACKOFF=30                       # Base seconds cho exponential backoff
 
@@ -1129,13 +926,18 @@ CHAT_NO_DATA_BEHAVIOR=inform                  # 'inform' = trả lời rõ ràng
 Schedule cho mỗi category được lưu trong `legal_categories` table:
 
 ```
-dat_dai:     daily   02:00   active
-nha_o:       daily   02:30   active
-dan_su:      weekly  Sun 03  active
-lao_dong:    daily   03:00   active
-doanh_nghiep: weekly  Mon 03  paused
-thuong_mai:  weekly  Mon 04  paused
+dat_dai:     weekly  Sun 02:00  active
+nha_o:       weekly  Sun 02:30  active
+dan_su:      weekly  Sun 03:00  active
+lao_dong:    weekly  Sun 03:30  active
+doanh_nghiep: monthly 1st 03:00 paused
+thuong_mai:  monthly 1st 04:00 paused
 ```
+
+> **Tại sao weekly thay vì daily?** Bộ luật VN thường chỉ sửa đổi/bổ sung
+> vài lần mỗi năm (qua Nghị định, Thông tư). Crawl daily lãng phí tài nguyên
+> và tạo load không cần thiết lên thuvienphapluat.vn. Weekly đủ để phát hiện
+> thay đổi kịp thời. Admin có thể force crawl bất cứ lúc nào nếu cần.
 
 ---
 
@@ -1177,7 +979,7 @@ legal_chatbot/
 
 -- 1. Bổ sung legal_categories
 ALTER TABLE legal_categories ADD COLUMN IF NOT EXISTS
-  worker_schedule TEXT DEFAULT 'daily';
+  worker_schedule TEXT DEFAULT 'weekly';
 ALTER TABLE legal_categories ADD COLUMN IF NOT EXISTS
   worker_time TEXT DEFAULT '02:00';
 ALTER TABLE legal_categories ADD COLUMN IF NOT EXISTS

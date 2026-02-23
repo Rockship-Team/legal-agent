@@ -102,7 +102,9 @@
       "WebFetch(domain:luatsu-vn.com)",
       "WebFetch(domain:luatminhtu.vn)",
       "Bash(powershell -c:*)",
-      "Bash(bd:*)"
+      "Bash(bd:*)",
+      "WebFetch(domain:hethongphapluat.com)",
+      "WebFetch(domain:phobienphapluat.vn)"
     ]
   }
 }
