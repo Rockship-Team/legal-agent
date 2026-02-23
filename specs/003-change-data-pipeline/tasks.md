@@ -172,7 +172,7 @@ python -m legal_chatbot chat "Quy định bảo hiểm xã hội"
 
 ### Increment 3 — Background Worker (US4)
 
-**Goal**: Automated daily pipeline runs per category.
+**Goal**: Automated weekly pipeline runs per category.
 
 **Scope**: Phase 6 (T019-T024)
 

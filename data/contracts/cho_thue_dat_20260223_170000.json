@@ -1,0 +1,175 @@
+{
+  "contract_type": "cho_thue_dat",
+  "contract_type_vn": "Hợp đồng cho thuê quyền sử dụng đất",
+  "created_at": "2026-02-23T17:00:00",
+  "status": "draft",
+  "legal_references": [
+    {"article": "Điều 37", "law": "Luật Đất đai 2024", "document_number": "31/2024/QH15", "description": "Quyền và nghĩa vụ của cá nhân sử dụng đất"},
+    {"article": "Điều 43", "law": "Nghị định 102/2024/NĐ-CP", "document_number": "102/2024/NĐ-CP", "description": "Quản lý, khai thác quỹ đất ngắn hạn, hợp đồng cho thuê đất"},
+    {"article": "Điều 46", "law": "Luật Đất đai 2024", "document_number": "31/2024/QH15", "description": "Điều kiện bán tài sản gắn liền với đất thuê"},
+    {"article": "Điều 116", "law": "Luật Đất đai 2024", "document_number": "31/2024/QH15", "description": "Căn cứ để giao đất, cho thuê đất"},
+    {"article": "Điều 117", "law": "Bộ luật Dân sự 2015", "document_number": "91/2015/QH13", "description": "Điều kiện có hiệu lực của giao dịch dân sự"},
+    {"article": "Điều 472", "law": "Bộ luật Dân sự 2015", "document_number": "91/2015/QH13", "description": "Hợp đồng thuê tài sản"},
+    {"article": "Điều 473", "law": "Bộ luật Dân sự 2015", "document_number": "91/2015/QH13", "description": "Giá thuê"},
+    {"article": "Điều 474", "law": "Bộ luật Dân sự 2015", "document_number": "91/2015/QH13", "description": "Thời hạn thuê"},
+    {"article": "Điều 475", "law": "Bộ luật Dân sự 2015", "document_number": "91/2015/QH13", "description": "Nghĩa vụ của bên cho thuê"},
+    {"article": "Điều 476", "law": "Bộ luật Dân sự 2015", "document_number": "91/2015/QH13", "description": "Nghĩa vụ của bên thuê"}
+  ],
+  "fields": {
+    "ben_cho_thue": {
+      "_label": "BÊN CHO THUÊ (BÊN A)",
+      "ho_ten": {"value": "Nguyễn Văn Hùng", "label": "Họ và tên"},
+      "ngay_sinh": {"value": "10/05/1978", "label": "Ngày sinh"},
+      "so_cccd": {"value": "001089012345", "label": "Số CCCD"},
+      "ngay_cap_cccd": {"value": "15/01/2022", "label": "Ngày cấp"},
+      "noi_cap_cccd": {"value": "Cục Cảnh sát quản lý hành chính về trật tự xã hội", "label": "Nơi cấp"},
+      "ho_khau": {"value": "45 Trần Phú, Phường Phú Nhuận, TP. Thủ Đức, TP. Hồ Chí Minh", "label": "Hộ khẩu thường trú"},
+      "dien_thoai": {"value": "0901234567", "label": "Điện thoại"}
+    },
+    "ben_thue": {
+      "_label": "BÊN THUÊ (BÊN B)",
+      "ho_ten": {"value": "Trần Thị Mai Lan", "label": "Họ và tên"},
+      "ngay_sinh": {"value": "22/09/1990", "label": "Ngày sinh"},
+      "so_cccd": {"value": "079092067890", "label": "Số CCCD"},
+      "ngay_cap_cccd": {"value": "08/03/2023", "label": "Ngày cấp"},
+      "noi_cap_cccd": {"value": "Cục Cảnh sát quản lý hành chính về trật tự xã hội", "label": "Nơi cấp"},
+      "ho_khau": {"value": "120 Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh", "label": "Hộ khẩu thường trú"},
+      "dien_thoai": {"value": "0912345678", "label": "Điện thoại"}
+    },
+    "thua_dat": {
+      "_label": "THÔNG TIN THỬA ĐẤT CHO THUÊ",
+      "dia_chi": {"value": "Thửa đất số 150, Tờ bản đồ số 12, xã Phước Thạnh, huyện Long Thành, tỉnh Đồng Nai", "label": "Địa chỉ thửa đất"},
+      "dien_tich": {"value": "500 m²", "label": "Diện tích"},
+      "muc_dich_su_dung": {"value": "Đất nông nghiệp", "label": "Mục đích sử dụng"},
+      "so_gcn": {"value": "BT 123456", "label": "Số Giấy chứng nhận QSDĐ"},
+      "ngay_cap_gcn": {"value": "15/03/2020", "label": "Ngày cấp GCN"},
+      "co_quan_cap": {"value": "UBND huyện Long Thành, tỉnh Đồng Nai", "label": "Cơ quan cấp"}
+    },
+    "tai_chinh": {
+      "_label": "TÀI CHÍNH",
+      "gia_thue": {"value": 3000000, "label": "Giá thuê (VNĐ/tháng)"},
+      "gia_thue_bang_chu": {"value": "Ba triệu đồng", "label": "Giá thuê bằng chữ"},
+      "phuong_thuc_thanh_toan": {"value": "Chuyển khoản ngân hàng, thanh toán hàng quý (3 tháng/lần)", "label": "Phương thức thanh toán"},
+      "tien_dat_coc": {"value": 9000000, "label": "Tiền đặt cọc (VNĐ)"},
+      "tien_dat_coc_bang_chu": {"value": "Chín triệu đồng (tương đương 3 tháng tiền thuê)", "label": "Tiền đặt cọc bằng chữ"},
+      "ngan_hang": {"value": "Vietcombank - Chi nhánh Đồng Nai", "label": "Ngân hàng"},
+      "so_tai_khoan": {"value": "0071000654321", "label": "Số tài khoản Bên A"}
+    },
+    "thoi_han": {
+      "_label": "THỜI HẠN",
+      "ngay_ky": {"value": "23/02/2026", "label": "Ngày ký hợp đồng"},
+      "thoi_han_thue": {"value": "05 năm", "label": "Thời hạn thuê"},
+      "ngay_bat_dau": {"value": "01/03/2026", "label": "Ngày bắt đầu thuê"},
+      "ngay_ket_thuc": {"value": "28/02/2031", "label": "Ngày kết thúc thuê"},
+      "muc_dich_thue": {"value": "Trồng cây nông nghiệp", "label": "Mục đích thuê"}
+    }
+  },
+  "articles": [
+    {
+      "title": "ĐIỀU 1: ĐỐI TƯỢNG CỦA HỢP ĐỒNG",
+      "content": [
+        "1.1. Bên A đồng ý cho Bên B thuê quyền sử dụng đất tại: Thửa đất số 150, Tờ bản đồ số 12, xã Phước Thạnh, huyện Long Thành, tỉnh Đồng Nai.",
+        "1.2. Diện tích cho thuê: 500 m² (Năm trăm mét vuông).",
+        "1.3. Mục đích sử dụng đất theo Giấy chứng nhận: Đất nông nghiệp.",
+        "1.4. Thửa đất thuộc quyền sử dụng hợp pháp của Bên A theo Giấy chứng nhận quyền sử dụng đất số BT 123456, cấp ngày 15/03/2020 bởi UBND huyện Long Thành, tỉnh Đồng Nai.",
+        "1.5. Thửa đất không có tranh chấp, không bị kê biên để bảo đảm thi hành án, không thuộc diện đã có quyết định thu hồi đất, phù hợp quy định tại Điều 37 và Điều 46 Luật Đất đai 2024."
+      ]
+    },
+    {
+      "title": "ĐIỀU 2: THỜI HẠN THUÊ",
+      "content": [
+        "2.1. Thời hạn thuê là 05 (năm) năm, kể từ ngày 01/03/2026 đến hết ngày 28/02/2031, phù hợp quy định tại Điều 474 Bộ luật Dân sự 2015.",
+        "2.2. Khi hết thời hạn thuê, nếu Bên B có nhu cầu tiếp tục thuê thì phải thông báo bằng văn bản cho Bên A trước ít nhất 03 (ba) tháng trước ngày hết hạn. Bên A được quyền ưu tiên xem xét gia hạn cho Bên B.",
+        "2.3. Trường hợp Nhà nước thu hồi đất trong thời hạn thuê, hợp đồng đương nhiên chấm dứt. Bên A hoàn trả tiền thuê tương ứng với thời gian còn lại và tiền đặt cọc cho Bên B theo quy định tại khoản 1b Điều 43 Nghị định 102/2024/NĐ-CP."
+      ]
+    },
+    {
+      "title": "ĐIỀU 3: GIÁ THUÊ VÀ PHƯƠNG THỨC THANH TOÁN",
+      "content": [
+        "3.1. Giá thuê: 3.000.000 VNĐ/tháng (Ba triệu đồng một tháng), phù hợp quy định tại Điều 473 Bộ luật Dân sự 2015 về giá thuê tài sản.",
+        "3.2. Phương thức thanh toán: Thanh toán hàng quý (03 tháng/lần), tức 9.000.000 VNĐ/quý, bằng hình thức chuyển khoản ngân hàng vào tài khoản của Bên A tại Vietcombank - Chi nhánh Đồng Nai, số tài khoản: 0071000654321.",
+        "3.3. Thời hạn thanh toán: Bên B thanh toán tiền thuê trong vòng 05 ngày đầu tiên của mỗi quý. Quý đầu tiên thanh toán ngay khi ký hợp đồng.",
+        "3.4. Giá thuê được giữ nguyên trong 02 năm đầu. Sau đó, hai bên có quyền thương lượng điều chỉnh giá thuê nhưng mức tăng không quá 10%/năm so với giá thuê năm trước.",
+        "3.5. Bên B chậm thanh toán quá 15 ngày so với thời hạn quy định tại khoản 3.3 thì phải chịu lãi chậm trả 0,03%/ngày trên số tiền chậm trả."
+      ]
+    },
+    {
+      "title": "ĐIỀU 4: TIỀN ĐẶT CỌC",
+      "content": [
+        "4.1. Bên B đặt cọc cho Bên A số tiền: 9.000.000 VNĐ (Chín triệu đồng), tương đương 03 tháng tiền thuê, để bảo đảm thực hiện hợp đồng.",
+        "4.2. Tiền đặt cọc được thanh toán ngay khi ký hợp đồng. Bên A cấp biên nhận xác nhận đã nhận tiền đặt cọc.",
+        "4.3. Khi hết hạn hợp đồng, nếu Bên B đã thực hiện đầy đủ nghĩa vụ, Bên A hoàn trả toàn bộ tiền đặt cọc cho Bên B trong vòng 15 ngày kể từ ngày chấm dứt hợp đồng.",
+        "4.4. Nếu Bên B đơn phương chấm dứt hợp đồng trước hạn mà không có lý do chính đáng, Bên B mất quyền đòi lại tiền đặt cọc.",
+        "4.5. Nếu Bên A đơn phương chấm dứt hợp đồng trước hạn mà không có lý do chính đáng, Bên A phải trả lại tiền đặt cọc và bồi thường thêm một khoản bằng tiền đặt cọc cho Bên B."
+      ]
+    },
+    {
+      "title": "ĐIỀU 5: MỤC ĐÍCH SỬ DỤNG ĐẤT THUÊ",
+      "content": [
+        "5.1. Bên B được sử dụng đất thuê vào mục đích: Trồng cây nông nghiệp, phù hợp với mục đích sử dụng đất ghi trong Giấy chứng nhận quyền sử dụng đất.",
+        "5.2. Bên B không được tự ý thay đổi mục đích sử dụng đất khi chưa có sự đồng ý bằng văn bản của Bên A và phải đảm bảo phù hợp với quy định pháp luật về đất đai theo Điều 116 Luật Đất đai 2024.",
+        "5.3. Bên B không được xây dựng công trình kiên cố trên đất thuê. Các công trình tạm phục vụ sản xuất nông nghiệp phải được Bên A đồng ý bằng văn bản, phù hợp quy định tại khoản 4 Điều 43 Nghị định 102/2024/NĐ-CP.",
+        "5.4. Bên B không được cho thuê lại, chuyển nhượng quyền thuê đất cho bên thứ ba khi chưa có sự đồng ý bằng văn bản của Bên A."
+      ]
+    },
+    {
+      "title": "ĐIỀU 6: QUYỀN VÀ NGHĨA VỤ CỦA BÊN CHO THUÊ (BÊN A)",
+      "content": [
+        "6.1. Quyền của Bên A:",
+        "  a) Nhận đủ tiền thuê đất đúng thời hạn theo thỏa thuận tại Điều 3;",
+        "  b) Yêu cầu Bên B sử dụng đất đúng mục đích, không hủy hoại đất;",
+        "  c) Yêu cầu Bên B trả lại đất khi hết thời hạn thuê hoặc khi hợp đồng bị chấm dứt;",
+        "  d) Đơn phương chấm dứt hợp đồng nếu Bên B vi phạm nghiêm trọng nghĩa vụ theo Điều 475 Bộ luật Dân sự 2015.",
+        "6.2. Nghĩa vụ của Bên A:",
+        "  a) Giao đất đúng diện tích, đúng hiện trạng, đúng thời hạn theo thỏa thuận;",
+        "  b) Bảo đảm quyền sử dụng đất hợp pháp cho Bên B trong suốt thời hạn thuê;",
+        "  c) Không được cản trở hoặc gây khó khăn cho Bên B trong quá trình sử dụng đất;",
+        "  d) Nộp thuế, phí liên quan đến quyền sử dụng đất theo quy định pháp luật;",
+        "  e) Thông báo cho Bên B về quyền của bên thứ ba đối với đất cho thuê (nếu có), theo quy định tại Điều 37 Luật Đất đai 2024."
+      ]
+    },
+    {
+      "title": "ĐIỀU 7: QUYỀN VÀ NGHĨA VỤ CỦA BÊN THUÊ (BÊN B)",
+      "content": [
+        "7.1. Quyền của Bên B:",
+        "  a) Sử dụng đất thuê đúng mục đích trong suốt thời hạn thuê;",
+        "  b) Được hưởng thành quả lao động, kết quả đầu tư trên đất thuê;",
+        "  c) Yêu cầu Bên A bồi thường thiệt hại nếu Bên A vi phạm hợp đồng;",
+        "  d) Được ưu tiên gia hạn hợp đồng khi hết thời hạn thuê.",
+        "7.2. Nghĩa vụ của Bên B:",
+        "  a) Thanh toán tiền thuê đầy đủ, đúng hạn theo Điều 3 hợp đồng này;",
+        "  b) Sử dụng đất đúng mục đích, đúng ranh giới, không hủy hoại đất, theo quy định tại Điều 476 Bộ luật Dân sự 2015;",
+        "  c) Không được chuyển nhượng, cho thuê lại quyền sử dụng đất khi chưa được Bên A đồng ý bằng văn bản;",
+        "  d) Trả lại đất trong tình trạng không xấu hơn so với lúc nhận, trừ hao mòn tự nhiên, khi hết hạn hợp đồng;",
+        "  e) Tự tháo dỡ các công trình tạm (nếu có) và hoàn trả mặt bằng khi chấm dứt hợp đồng."
+      ]
+    },
+    {
+      "title": "ĐIỀU 8: TRÁCH NHIỆM DO VI PHẠM HỢP ĐỒNG",
+      "content": [
+        "8.1. Bên nào vi phạm các điều khoản của hợp đồng thì phải bồi thường thiệt hại thực tế cho bên bị vi phạm.",
+        "8.2. Nếu Bên B chậm thanh toán tiền thuê quá 30 ngày, Bên A có quyền đơn phương chấm dứt hợp đồng và Bên B mất tiền đặt cọc.",
+        "8.3. Nếu Bên A thu hồi đất trước hạn mà không có lý do chính đáng, Bên A phải hoàn trả tiền thuê tương ứng thời gian còn lại, hoàn trả tiền đặt cọc, và bồi thường thiệt hại cho Bên B (bao gồm chi phí đầu tư trên đất nếu có).",
+        "8.4. Nếu Bên B sử dụng đất sai mục đích hoặc hủy hoại đất, Bên A có quyền đơn phương chấm dứt hợp đồng và yêu cầu Bên B bồi thường toàn bộ thiệt hại.",
+        "8.5. Trường hợp bất khả kháng (thiên tai, dịch bệnh, quyết định thu hồi đất của Nhà nước), hai bên không phải chịu trách nhiệm bồi thường nhưng phải thông báo cho bên kia trong thời hạn 07 ngày kể từ khi sự kiện xảy ra."
+      ]
+    },
+    {
+      "title": "ĐIỀU 9: GIẢI QUYẾT TRANH CHẤP",
+      "content": [
+        "9.1. Mọi tranh chấp phát sinh từ hoặc liên quan đến hợp đồng này trước hết được giải quyết thông qua thương lượng, hòa giải giữa hai bên.",
+        "9.2. Trường hợp không thể giải quyết bằng thương lượng trong thời hạn 30 ngày kể từ ngày phát sinh tranh chấp, một trong hai bên có quyền khởi kiện tại Tòa án nhân dân có thẩm quyền nơi có bất động sản để giải quyết theo quy định pháp luật."
+      ]
+    },
+    {
+      "title": "ĐIỀU 10: ĐIỀU KHOẢN CHUNG",
+      "content": [
+        "10.1. Hợp đồng này có hiệu lực kể từ ngày ký. Trường hợp hai bên có công chứng, chứng thực thì hợp đồng có hiệu lực từ ngày công chứng, chứng thực, phù hợp quy định tại Điều 117 Bộ luật Dân sự 2015.",
+        "10.2. Hợp đồng được lập thành 04 bản có giá trị pháp lý như nhau, mỗi bên giữ 02 bản.",
+        "10.3. Các bên cam kết thực hiện đúng và đầy đủ các điều khoản đã thỏa thuận trong hợp đồng này.",
+        "10.4. Mọi sửa đổi, bổ sung hợp đồng phải được lập thành văn bản có chữ ký của hai bên.",
+        "10.5. Những vấn đề không được quy định trong hợp đồng này sẽ được giải quyết theo quy định của Bộ luật Dân sự 2015 và Luật Đất đai 2024."
+      ]
+    }
+  ]
+}

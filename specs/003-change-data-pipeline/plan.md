@@ -5,7 +5,7 @@
 
 ## Summary
 
-Redesign the data pipeline to be **DB-first**: all chat, research, and contract creation operations use only Supabase-indexed data (no web search). Add a **background worker** (APScheduler) that automatically crawls and updates legal documents on a daily schedule. Implement **contract templates** pre-mapped to specific law categories so contracts can be generated without real-time web crawling. Add **document registry** for targeted, incremental crawling of specific law documents.
+Redesign the data pipeline to be **DB-first**: all chat, research, and contract creation operations use only Supabase-indexed data (no web search). Add a **background worker** (APScheduler) that automatically crawls and updates legal documents on a weekly schedule. Implement **contract templates** pre-mapped to specific law categories so contracts can be generated without real-time web crawling. Add **document registry** for targeted, incremental crawling of specific law documents.
 
 ## Technical Context
 
@@ -25,10 +25,10 @@ Redesign the data pipeline to be **DB-first**: all chat, research, and contract 
 
 Note: Project constitution is not yet configured (template placeholder). Checks evaluated against project conventions from CLAUDE.md and existing specs.
 
-- [x] **Specification-First**: spec.md complete with 5 use case scenarios, 14 sections, DB schema, flow diagrams
-- [x] **Test-First**: Test strategy defined in spec.md Section 12 (unit + integration + acceptance tests)
+- [x] **Specification-First**: spec.md complete with DOD, law inventory, functional requirements, data model, testing strategy
+- [x] **Test-First**: Test strategy defined in spec.md Section 9 (unit + acceptance tests)
 - [x] **Code Quality**: Black + isort + mypy type hints (from CLAUDE.md)
-- [x] **UX Consistency**: User flows documented in spec.md Section 1.3 (5 scenarios) and Section 7 (response templates)
+- [x] **UX Consistency**: No-data response templates in spec.md Section 2.2, natural AI chat tone
 - [x] **Performance**: Rate limits, crawl intervals, and chat response constraints defined
 - [x] **Observability**: Pipeline logging via `pipeline_runs` table, audit trail for research/contracts
 - [ ] **Issue Tracking**: No Beads epic (project does not use Beads)
@@ -142,7 +142,7 @@ tests/
 
 ### Phase 3: Background Worker
 
-**Goal**: Automated daily pipeline runs per category.
+**Goal**: Automated weekly pipeline runs per category.
 
 | Task | Files | Type |
 |------|-------|------|

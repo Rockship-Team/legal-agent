@@ -167,7 +167,7 @@ class CrawlerService:
             return 'luat'
 
     def _extract_effective_date(self, soup: BeautifulSoup) -> Optional[str]:
-        """Extract effective date from document"""
+        """Extract effective date from document. Returns ISO format YYYY-MM-DD."""
         patterns = [
             r'có hiệu lực.*?(\d{1,2}/\d{1,2}/\d{4})',
             r'ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})',
@@ -178,8 +178,15 @@ class CrawlerService:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 if len(match.groups()) == 3:
-                    return f"{match.group(1)}/{match.group(2)}/{match.group(3)}"
-                return match.group(1)
+                    day, month, year = match.group(1), match.group(2), match.group(3)
+                else:
+                    # DD/M/YYYY format
+                    parts = match.group(1).split('/')
+                    if len(parts) == 3:
+                        day, month, year = parts
+                    else:
+                        return None
+                return f"{year}-{int(month):02d}-{int(day):02d}"
 
         return None
 
@@ -230,16 +237,9 @@ class CrawlerService:
             )
 
             try:
-                # Apply stealth
-                try:
-                    from playwright_stealth import stealth_async
-                    page = await context.new_page()
-                    await stealth_async(page)
-                except ImportError:
-                    logger.warning("playwright-stealth not installed, proceeding without stealth")
-                    page = await context.new_page()
+                page = await context.new_page()
 
-                # Navigate and wait for Cloudflare
+                # Navigate and wait for content
                 await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                 await page.wait_for_timeout(random.randint(5000, 10000))
 

@@ -67,20 +67,23 @@ class ChatService:
     def _build_no_data_message(
         self, category: Optional[str], available: List[CategoryInfo]
     ) -> str:
-        """Generate user-friendly no-data message.
+        """Generate natural, friendly no-data message (AI chat tone).
 
         Template:
-        '⚠ Hệ thống chưa có dữ liệu về lĩnh vực {category}.
-         Hiện có: {list of available categories with counts}'
+        'Hiện tại mình chưa có dữ liệu về lĩnh vực {category}
+         nên không thể tư vấn chính xác được.
+         Mình có thể giúp bạn về: {list of available categories with counts}.
+         Bạn muốn hỏi về lĩnh vực nào?'
         """
 
     def _build_insufficient_data_message(
         self, query: str, category: str
     ) -> str:
-        """Generate message when search returns 0 results.
+        """Generate friendly message when search returns 0 results.
 
         Template:
-        'Không tìm thấy điều luật phù hợp cho câu hỏi...'
+        'Mình không tìm thấy điều luật phù hợp với câu hỏi này.
+         Bạn thử diễn đạt cụ thể hơn?'
         """
 ```
 

@@ -71,7 +71,7 @@
 2. **Normalize HTML before hashing**: Strip scripts, ads, dynamic elements → extract `div.content1` → get text → SHA-256
 3. **Compare hash with stored `content_hash`** in `legal_documents` table
 4. **Only re-parse/re-embed if hash differs**
-5. **Time-based scheduling**: Crawl active laws daily, expired laws monthly
+5. **Time-based scheduling**: Crawl active laws weekly, expired laws monthly
 
 ### Normalization Steps
 ```

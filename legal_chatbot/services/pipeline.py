@@ -1,7 +1,9 @@
 """Pipeline service — orchestrates crawl, parse, index, validate"""
 
 import asyncio
+import hashlib
 import logging
+import time
 import uuid
 from datetime import datetime
 from typing import List, Optional
@@ -10,6 +12,7 @@ from legal_chatbot.db.base import DatabaseInterface
 from legal_chatbot.models.pipeline import (
     CategoryConfig,
     CrawlResult,
+    DocumentRegistryEntry,
     PipelineRun,
     PipelineStatus,
 )
@@ -54,6 +57,135 @@ _LEGAL_KEYWORDS = (
 class InvalidCategoryError(ValueError):
     """Raised when a category name is not a valid legal domain."""
     pass
+
+
+# Contract template configurations (search queries per contract type)
+CONTRACT_TEMPLATES = {
+    "dat_dai": [
+        {
+            "contract_type": "mua_ban_dat",
+            "display_name": "Hợp đồng mua bán đất",
+            "search_queries": [
+                "điều kiện chuyển nhượng quyền sử dụng đất",
+                "hợp đồng chuyển nhượng quyền sử dụng đất",
+                "quyền nghĩa vụ bên chuyển nhượng bên nhận",
+                "giá đất thanh toán chuyển nhượng",
+                "thủ tục đăng ký biến động đất đai",
+            ],
+            "required_laws": ["Luật Đất đai 2024", "Bộ luật Dân sự 2015"],
+            "min_articles": 10,
+        },
+        {
+            "contract_type": "cho_thue_dat",
+            "display_name": "Hợp đồng cho thuê đất",
+            "search_queries": [
+                "cho thuê quyền sử dụng đất",
+                "hợp đồng thuê đất điều kiện",
+                "quyền nghĩa vụ bên cho thuê bên thuê đất",
+            ],
+            "required_laws": ["Luật Đất đai 2024", "Bộ luật Dân sự 2015"],
+            "min_articles": 8,
+        },
+        {
+            "contract_type": "chuyen_nhuong_dat",
+            "display_name": "Hợp đồng chuyển nhượng QSDĐ",
+            "search_queries": [
+                "chuyển nhượng quyền sử dụng đất",
+                "điều kiện chuyển nhượng đất",
+                "thủ tục chuyển nhượng đất đai",
+            ],
+            "required_laws": ["Luật Đất đai 2024", "Bộ luật Dân sự 2015"],
+            "min_articles": 10,
+        },
+    ],
+    "nha_o": [
+        {
+            "contract_type": "cho_thue_nha",
+            "display_name": "Hợp đồng thuê nhà ở",
+            "search_queries": [
+                "hợp đồng thuê nhà ở",
+                "quyền nghĩa vụ bên cho thuê bên thuê nhà",
+                "giá thuê phương thức thanh toán nhà",
+                "chấm dứt hợp đồng thuê nhà",
+            ],
+            "required_laws": ["Luật Nhà ở 2023", "Bộ luật Dân sự 2015"],
+            "min_articles": 8,
+        },
+        {
+            "contract_type": "mua_ban_nha",
+            "display_name": "Hợp đồng mua bán nhà ở",
+            "search_queries": [
+                "mua bán nhà ở điều kiện",
+                "hợp đồng mua bán nhà",
+                "quyền sở hữu nhà ở chuyển nhượng",
+            ],
+            "required_laws": ["Luật Nhà ở 2023", "Bộ luật Dân sự 2015"],
+            "min_articles": 8,
+        },
+    ],
+    "lao_dong": [
+        {
+            "contract_type": "hop_dong_lao_dong",
+            "display_name": "Hợp đồng lao động",
+            "search_queries": [
+                "hợp đồng lao động nội dung hình thức",
+                "quyền nghĩa vụ người lao động",
+                "quyền nghĩa vụ người sử dụng lao động",
+                "thời giờ làm việc nghỉ ngơi",
+                "tiền lương chế độ",
+            ],
+            "required_laws": ["Bộ luật Lao động 2019"],
+            "min_articles": 10,
+        },
+        {
+            "contract_type": "thu_viec",
+            "display_name": "Hợp đồng thử việc",
+            "search_queries": [
+                "thử việc thời gian điều kiện",
+                "tiền lương thử việc",
+                "kết thúc thử việc",
+            ],
+            "required_laws": ["Bộ luật Lao động 2019"],
+            "min_articles": 5,
+        },
+    ],
+    "dan_su": [
+        {
+            "contract_type": "vay_tien",
+            "display_name": "Hợp đồng vay tiền",
+            "search_queries": [
+                "hợp đồng vay tài sản",
+                "lãi suất vay quy định",
+                "nghĩa vụ trả nợ bên vay",
+                "thời hạn vay",
+            ],
+            "required_laws": ["Bộ luật Dân sự 2015"],
+            "min_articles": 5,
+        },
+        {
+            "contract_type": "uy_quyen",
+            "display_name": "Hợp đồng ủy quyền",
+            "search_queries": [
+                "hợp đồng ủy quyền",
+                "phạm vi ủy quyền",
+                "nghĩa vụ bên ủy quyền bên được ủy quyền",
+            ],
+            "required_laws": ["Bộ luật Dân sự 2015"],
+            "min_articles": 5,
+        },
+        {
+            "contract_type": "dich_vu",
+            "display_name": "Hợp đồng dịch vụ",
+            "search_queries": [
+                "hợp đồng dịch vụ",
+                "quyền nghĩa vụ bên cung ứng bên sử dụng dịch vụ",
+                "giá dịch vụ thanh toán",
+            ],
+            "required_laws": ["Bộ luật Dân sự 2015"],
+            "min_articles": 5,
+        },
+    ],
+}
 
 
 # Category configurations
@@ -450,52 +582,97 @@ class PipelineService:
             return cat_id
         return ""
 
-    async def run(self, category: str, limit: int = 20) -> PipelineRun:
+    async def run(
+        self,
+        category: str,
+        limit: int = 50,
+        trigger_type: str = "manual",
+        force: bool = False,
+    ) -> PipelineRun:
         """Execute full pipeline for a category.
 
+        Supports incremental crawl via document_registry + content hash comparison.
+
+        Args:
+            category: Category name (e.g. 'dat_dai')
+            limit: Max documents per run
+            trigger_type: 'manual' | 'scheduled' | 'forced'
+            force: Skip hash comparison, re-crawl everything
+
         Phases:
-        1. DISCOVERY: Find new/updated documents in category
-        2. CRAWL: Fetch and parse document content
+        1. DISCOVERY: Load URLs from document_registry (or fallback to hardcoded)
+        2. CRAWL: Fetch, hash compare, skip unchanged
         3. INDEX: Store in DB + generate embeddings
-        4. VALIDATE: Verify data integrity
+        4. VALIDATE: Verify data integrity + update category counts
         """
         config = self.get_category_config(category)
         if not config:
             raise ValueError(f"Unknown category: {category}")
 
+        start_time = time.time()
         run = PipelineRun(
             id=str(uuid.uuid4()),
             started_at=datetime.now(),
+            trigger_type=trigger_type,
         )
 
         try:
-            logger.info(f"Pipeline: {config.display_name}")
+            logger.info(f"Pipeline: {config.display_name} (trigger={trigger_type}, force={force})")
 
-            # Phase 0: Sync categories to DB
-            self.sync_categories()
-
-            # Phase 1: Discovery
+            # Phase 1: Discovery — load from document_registry or fallback
             logger.info("Phase 1: Discovery...")
-            urls = config.document_urls[:limit]
-            run.documents_found = len(urls)
-            logger.info(f"  Found {run.documents_found} documents")
+            registry_entries = self._get_document_registry(category)
+            if registry_entries:
+                urls = [e["url"] for e in registry_entries[:limit]]
+                logger.info(f"  Loaded {len(urls)} URLs from document_registry")
+            else:
+                urls = config.document_urls[:limit]
+                logger.info(f"  Fallback to hardcoded URLs: {len(urls)}")
 
-            # Phase 2: Crawl
+            run.documents_found = len(urls)
+
+            # Phase 2: Crawl (incremental)
             logger.info("Phase 2: Crawling...")
             crawl_results = []
+            registry_map = {e["url"]: e for e in registry_entries} if registry_entries else {}
+
             for url in urls:
                 try:
                     result = await self.crawl_document(url, config)
-                    if result:
-                        # Check if document already exists (by content hash)
-                        existing = self.db.get_document_by_hash(result.content_hash)
-                        if existing:
-                            result.is_new = False
+                    if not result:
+                        continue
+
+                    # Incremental: compare content hash
+                    registry_entry = registry_map.get(url)
+                    if not force and registry_entry:
+                        old_hash = registry_entry.get("last_content_hash", "")
+                        if old_hash and old_hash == result.content_hash:
+                            run.documents_skipped += 1
                             logger.info(f"  Skipped (unchanged): {result.title[:50]}")
-                        else:
-                            crawl_results.append(result)
-                            run.documents_new += 1
-                            logger.info(f"  Crawled: {result.title[:50]}")
+                            # Update checked_at
+                            if registry_entry.get("id"):
+                                self.db.update_registry_hash(
+                                    registry_entry["id"], result.content_hash
+                                )
+                            continue
+
+                    # Update registry with new hash
+                    if registry_entry and registry_entry.get("id"):
+                        self.db.update_registry_hash(
+                            registry_entry["id"], result.content_hash
+                        )
+
+                    # Also check DB-level hash
+                    existing = self.db.get_document_by_hash(result.content_hash)
+                    if existing and not force:
+                        result.is_new = False
+                        run.documents_skipped += 1
+                        logger.info(f"  Skipped (DB hash match): {result.title[:50]}")
+                    else:
+                        crawl_results.append(result)
+                        run.documents_new += 1
+                        logger.info(f"  Crawled: {result.title[:50]}")
+
                 except Exception as e:
                     logger.error(f"  Error crawling {url}: {e}")
 
@@ -520,15 +697,42 @@ class PipelineService:
             run.articles_indexed = total_articles
             run.embeddings_generated = total_articles
 
-            # Phase 4: Validate
+            # Phase 4: Validate + update category counts
             logger.info("Phase 4: Validation...")
             valid = self.validate(run)
             if valid:
                 run.status = PipelineStatus.COMPLETED
-                logger.info(f"Pipeline completed: {run.documents_new} docs, {run.articles_indexed} articles")
+                logger.info(
+                    f"Pipeline completed: {run.documents_new} new, "
+                    f"{run.documents_skipped} skipped, {run.articles_indexed} articles"
+                )
             else:
                 run.status = PipelineStatus.FAILED
                 logger.warning("Pipeline validation failed")
+
+            # Resolve category_id (auto-created during indexing from doc titles)
+            category_id = self.get_category_id(category)
+            run.category_id = category_id
+
+            # Update category counts
+            if category_id and hasattr(self.db, "update_category_counts"):
+                try:
+                    self.db.update_category_counts(category_id)
+                except Exception as e:
+                    logger.warning(f"Failed to update category counts: {e}")
+
+            # Phase 5: Auto-seed registry + templates (with cached search results)
+            logger.info("Phase 5: Auto-seed registry & templates...")
+            try:
+                reg_count = self.seed_registry_for_category(category)
+                tmpl_count = self.seed_templates_for_category(
+                    category, cache_articles=True
+                )
+                logger.info(
+                    f"  Seeded: {reg_count} registry entries, {tmpl_count} templates (with cached articles)"
+                )
+            except Exception as e:
+                logger.warning(f"Auto-seed failed (non-critical): {e}")
 
         except Exception as e:
             run.status = PipelineStatus.FAILED
@@ -536,7 +740,56 @@ class PipelineService:
             logger.error(f"Pipeline failed: {e}")
 
         run.completed_at = datetime.now()
+        run.duration_seconds = time.time() - start_time
         return run
+
+    def _get_document_registry(self, category: str) -> List[dict]:
+        """Load active registry entries for a category from DB."""
+        if not hasattr(self.db, "get_document_registry"):
+            return []
+        try:
+            return self.db.get_document_registry(category)
+        except Exception as e:
+            logger.warning(f"Failed to load document registry: {e}")
+            return []
+
+    @staticmethod
+    def _compute_normalized_hash(html_content: str) -> str:
+        """Compute SHA-256 of normalized content.
+
+        Steps:
+        1. Parse with BeautifulSoup
+        2. Remove: script, style, noscript, iframe
+        3. Extract: div.content1 or div.toanvancontent
+        4. Get text, collapse whitespace
+        5. SHA-256 hash
+        """
+        try:
+            from bs4 import BeautifulSoup
+            import re
+
+            soup = BeautifulSoup(html_content, "html.parser")
+
+            # Remove noise elements
+            for tag in soup.find_all(["script", "style", "noscript", "iframe"]):
+                tag.decompose()
+
+            # Extract main content
+            content_elem = (
+                soup.find("div", class_="content1")
+                or soup.find("div", class_="toanvancontent")
+                or soup.find("article")
+                or soup
+            )
+
+            text = content_elem.get_text()
+            # Collapse whitespace
+            text = re.sub(r"\s+", " ", text).strip()
+
+            return hashlib.sha256(text.encode("utf-8")).hexdigest()
+        except Exception:
+            # Fallback to raw hash
+            return hashlib.sha256(html_content.encode("utf-8")).hexdigest()
 
     async def crawl_document(
         self, url: str, config: CategoryConfig
@@ -568,12 +821,12 @@ class PipelineService:
 
     def index_document(self, result: CrawlResult, config: CategoryConfig) -> int:
         """Phase 3: Index document into DB + generate embeddings."""
-        # Get or create category (same validation flow as sync-articles / save-contract)
-        category_id = None
-        try:
-            category_id = self.ensure_category(config.name, config.display_name)
-        except InvalidCategoryError:
-            logger.warning(f"Invalid category '{config.name}', skipping category assignment")
+        # Auto-detect category from document title (not from user input)
+        category_id = self.category_from_document_title(result.title)
+        if category_id:
+            logger.info(f"  Category auto-detected from title: '{result.title[:60]}'")
+        else:
+            logger.warning(f"  Could not auto-detect category from title: '{result.title[:60]}'")
 
         # Insert document
         doc_data = {
@@ -638,6 +891,104 @@ class PipelineService:
     def get_category_config(self, name: str) -> Optional[CategoryConfig]:
         """Get crawl configuration for a category."""
         return CATEGORIES.get(name)
+
+    def seed_templates_for_category(self, category: str, cache_articles: bool = False) -> int:
+        """Seed contract templates for a category. Returns count seeded.
+
+        If cache_articles=True, also runs template search queries and caches
+        the matching articles in the template's cached_articles JSONB column.
+        This requires the embedding model to be loaded (self.embedding).
+        """
+        if not hasattr(self.db, "upsert_contract_template"):
+            return 0
+
+        templates = CONTRACT_TEMPLATES.get(category, [])
+        if not templates:
+            return 0
+
+        category_id = self.get_category_id(category)
+        if not category_id:
+            return 0
+
+        count = 0
+        for tmpl in templates:
+            tmpl_data = {**tmpl, "category_id": category_id}
+
+            # Pre-compute search results if requested
+            if cache_articles and hasattr(self.db, "search_articles"):
+                try:
+                    cached = self._run_template_queries(tmpl.get("search_queries", []))
+                    tmpl_data["cached_articles"] = cached
+                    tmpl_data["cached_at"] = datetime.now().isoformat()
+                    logger.info(
+                        f"  Cached {len(cached)} articles for {tmpl['contract_type']}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to cache articles for {tmpl['contract_type']}: {e}")
+
+            try:
+                self.db.upsert_contract_template(tmpl_data)
+                count += 1
+            except Exception as e:
+                logger.warning(f"Failed to seed template {tmpl['contract_type']}: {e}")
+
+        logger.info(f"Seeded {count} templates for {category}")
+        return count
+
+    def _run_template_queries(self, queries: list, top_k: int = 10) -> list:
+        """Run search queries and return deduplicated results."""
+        seen_keys = set()
+        results = []
+
+        for query in queries:
+            embedding = self.embedding.embed_single(query)
+            articles = self.db.search_articles(query_embedding=embedding, top_k=top_k)
+
+            for a in articles:
+                key = (a.get("article_number"), a.get("document_title", ""))
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    results.append({
+                        "article_number": a.get("article_number"),
+                        "title": a.get("title", ""),
+                        "document_title": a.get("document_title", ""),
+                        "content": a.get("content", ""),
+                        "similarity": round(a.get("similarity", 0), 4),
+                    })
+
+        results.sort(key=lambda x: x["similarity"], reverse=True)
+        return results
+
+    def seed_registry_for_category(self, category: str) -> int:
+        """Seed document registry entries for a category. Returns count seeded."""
+        if not hasattr(self.db, "upsert_registry_entry"):
+            return 0
+
+        config = CATEGORIES.get(category)
+        if not config or not config.document_urls:
+            return 0
+
+        category_id = self.get_category_id(category)
+        if not category_id:
+            return 0
+
+        count = 0
+        for i, url in enumerate(config.document_urls):
+            entry = {
+                "category_id": category_id,
+                "url": url,
+                "title": f"{config.display_name} - Doc {i + 1}",
+                "role": "primary" if i == 0 else "related",
+                "priority": i + 1,
+            }
+            try:
+                self.db.upsert_registry_entry(entry)
+                count += 1
+            except Exception as e:
+                logger.warning(f"Failed to seed registry entry {url}: {e}")
+
+        logger.info(f"Seeded {count} registry entries for {category}")
+        return count
 
     @staticmethod
     def list_categories() -> List[CategoryConfig]:

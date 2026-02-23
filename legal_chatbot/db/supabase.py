@@ -351,7 +351,186 @@ class SupabaseClient(DatabaseInterface):
         )
         return result.data
 
+    # =========================================================
+    # Document Registry CRUD (T006)
+    # =========================================================
+
+    def get_document_registry(self, category_name: str) -> List[dict]:
+        """Load active registry entries for a category, sorted by priority."""
+        client = self._read()
+        # Get category ID
+        cat = (
+            client.table("legal_categories")
+            .select("id")
+            .eq("name", category_name)
+            .limit(1)
+            .execute()
+        )
+        if not cat.data:
+            return []
+        category_id = cat.data[0]["id"]
+        result = (
+            client.table("document_registry")
+            .select("*")
+            .eq("category_id", category_id)
+            .eq("is_active", True)
+            .order("priority")
+            .execute()
+        )
+        return result.data
+
+    def upsert_registry_entry(self, entry: dict) -> str:
+        """Insert or update a registry entry. Returns entry ID."""
+        client = self._write()
+        data = {k: v for k, v in entry.items() if v is not None}
+        result = (
+            client.table("document_registry")
+            .upsert(data, on_conflict="url")
+            .execute()
+        )
+        return result.data[0]["id"]
+
+    def update_registry_hash(
+        self, entry_id: str, content_hash: str, checked_at: str = None
+    ) -> None:
+        """Update content hash and checked_at after crawl check."""
+        client = self._write()
+        data = {"last_content_hash": content_hash}
+        if checked_at:
+            data["last_checked_at"] = checked_at
+        else:
+            from datetime import datetime, timezone
+            data["last_checked_at"] = datetime.now(timezone.utc).isoformat()
+        client.table("document_registry").update(data).eq("id", entry_id).execute()
+
+    # =========================================================
+    # Contract Templates CRUD (T007)
+    # =========================================================
+
+    def get_contract_templates(self, category_name: str) -> List[dict]:
+        """Load active contract templates for a category."""
+        client = self._read()
+        cat = (
+            client.table("legal_categories")
+            .select("id")
+            .eq("name", category_name)
+            .limit(1)
+            .execute()
+        )
+        if not cat.data:
+            return []
+        category_id = cat.data[0]["id"]
+        result = (
+            client.table("contract_templates")
+            .select("*")
+            .eq("category_id", category_id)
+            .eq("is_active", True)
+            .execute()
+        )
+        return result.data
+
+    def get_contract_template(self, contract_type: str) -> Optional[dict]:
+        """Load single contract template by type slug."""
+        client = self._read()
+        result = (
+            client.table("contract_templates")
+            .select("*")
+            .eq("contract_type", contract_type)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        return result.data[0] if result.data else None
+
+    def list_available_contracts(self) -> List[dict]:
+        """List all active categories with their contract templates."""
+        client = self._read()
+        cats = (
+            client.table("legal_categories")
+            .select("id, name, display_name")
+            .eq("is_active", True)
+            .order("name")
+            .execute()
+        )
+        results = []
+        for cat in cats.data:
+            templates = (
+                client.table("contract_templates")
+                .select("contract_type, display_name")
+                .eq("category_id", cat["id"])
+                .eq("is_active", True)
+                .execute()
+            )
+            results.append({
+                "category": cat["name"],
+                "display_name": cat["display_name"],
+                "contract_types": [
+                    {"type": t["contract_type"], "name": t["display_name"]}
+                    for t in templates.data
+                ],
+            })
+        return results
+
+    def upsert_contract_template(self, template: dict) -> str:
+        """Insert or update a contract template. Returns template ID."""
+        client = self._write()
+        data = {k: v for k, v in template.items() if v is not None}
+        result = (
+            client.table("contract_templates")
+            .upsert(data, on_conflict="category_id,contract_type")
+            .execute()
+        )
+        return result.data[0]["id"]
+
+    # =========================================================
+    # Category Stats (T008)
+    # =========================================================
+
+    def get_category_stats(self, category_name: str) -> Optional[dict]:
+        """Get category with article/document counts via RPC."""
+        client = self._read()
+        result = client.rpc(
+            "get_category_stats", {"cat_name": category_name}
+        ).execute()
+        return result.data[0] if result.data else None
+
+    def get_all_categories_with_stats(self) -> List[dict]:
+        """List all categories with worker/count fields."""
+        client = self._read()
+        result = (
+            client.table("legal_categories")
+            .select(
+                "id, name, display_name, is_active, "
+                "worker_schedule, worker_time, worker_status, "
+                "document_count, article_count, "
+                "last_worker_run_at, last_worker_status"
+            )
+            .order("name")
+            .execute()
+        )
+        return result.data
+
+    def update_category_counts(self, category_id: str) -> None:
+        """Call update_category_counts RPC after pipeline run."""
+        client = self._write()
+        client.rpc("update_category_counts", {"cat_id": category_id}).execute()
+
+    def update_category_worker_status(
+        self, category_id: str, status: str, run_at: str = None
+    ) -> None:
+        """Update worker status after a pipeline run."""
+        client = self._write()
+        data = {"last_worker_status": status}
+        if run_at:
+            data["last_worker_run_at"] = run_at
+        else:
+            from datetime import datetime, timezone
+            data["last_worker_run_at"] = datetime.now(timezone.utc).isoformat()
+        client.table("legal_categories").update(data).eq("id", category_id).execute()
+
+    # =========================================================
     # Storage operations
+    # =========================================================
 
     def upload_raw_document(
         self, path: str, content: bytes, mime_type: str = "text/html"

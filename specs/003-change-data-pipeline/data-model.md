@@ -94,7 +94,7 @@ New columns added to existing table:
 
 | Column | Type | Default | Description |
 |--------|------|---------|-------------|
-| `worker_schedule` | TEXT | 'daily' | 'daily', 'weekly', 'monthly' |
+| `worker_schedule` | TEXT | 'weekly' | 'daily', 'weekly', 'monthly' |
 | `worker_time` | TEXT | '02:00' | Giờ chạy (HH:MM, UTC+7) |
 | `worker_status` | TEXT | 'active' | 'active', 'paused', 'disabled' |
 | `document_count` | INT | 0 | Cache: số documents đã crawl |

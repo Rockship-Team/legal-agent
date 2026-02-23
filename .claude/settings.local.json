@@ -104,7 +104,10 @@
       "Bash(powershell -c:*)",
       "Bash(bd:*)",
       "WebFetch(domain:hethongphapluat.com)",
-      "WebFetch(domain:phobienphapluat.vn)"
+      "WebFetch(domain:phobienphapluat.vn)",
+      "Bash(git -C \"C:\\\\Users\\\\ADMIN\\\\chatbot\" remote get-url origin)",
+      "Bash(git -C \"C:\\\\Users\\\\ADMIN\\\\chatbot\" status --short)",
+      "Bash(python -m pytest:*)"
     ]
   }
 }
