@@ -101,7 +101,8 @@
       "WebFetch(domain:sotuphap.hochiminhcity.gov.vn)",
       "WebFetch(domain:luatsu-vn.com)",
       "WebFetch(domain:luatminhtu.vn)",
-      "Bash(powershell -c:*)"
+      "Bash(powershell -c:*)",
+      "Bash(bd:*)"
     ]
   }
 }
