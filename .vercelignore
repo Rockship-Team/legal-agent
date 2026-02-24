@@ -1,0 +1,7 @@
+.claude/
+.beads/
+specs/
+tests/
+data/
+*.pdf
+*.db
