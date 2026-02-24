@@ -92,7 +92,8 @@ class SessionStore:
             return entry
 
     async def persist_messages(
-        self, session_id: str, user_message: str, assistant_message: str
+        self, session_id: str, user_message: str, assistant_message: str,
+        pdf_url: str | None = None,
     ) -> None:
         """Persist user and assistant messages to Supabase after each chat round."""
         if not self.db:
@@ -115,7 +116,11 @@ class SessionStore:
 
             # Save messages
             self.db.save_chat_message(session_id, "user", user_message)
-            self.db.save_chat_message(session_id, "assistant", assistant_message)
+            # Save assistant message with pdf_url metadata if present
+            metadata = {"pdf_url": pdf_url} if pdf_url else None
+            self.db.save_chat_message(
+                session_id, "assistant", assistant_message, metadata=metadata
+            )
         except Exception as e:
             print(f"Session persist error: {e}")
 

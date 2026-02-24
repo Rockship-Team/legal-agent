@@ -54,6 +54,7 @@ class MessageItem(BaseModel):
     role: str
     content: str
     created_at: Optional[datetime] = None
+    pdf_url: Optional[str] = None
 
 
 class SessionMessagesResponse(BaseModel):
