@@ -19,7 +19,6 @@ from legal_chatbot.models.pipeline import (
 from legal_chatbot.services.crawler import CrawlerService
 from legal_chatbot.services.embedding import EmbeddingService
 from legal_chatbot.services.indexer import IndexerService
-from legal_chatbot.utils.config import get_settings
 from legal_chatbot.utils.vietnamese import (
     edit_distance,
     normalize_category_name,
@@ -28,236 +27,13 @@ from legal_chatbot.utils.vietnamese import (
 
 logger = logging.getLogger(__name__)
 
-# Transaction verbs — stripped when comparing category *subjects*
-_TRANSACTION_VERBS = {
-    "mua", "ban", "thue", "cho", "vay", "muon", "chuyen", "nhuong", "gop",
-}
-
-# Known legal domain keywords (no diacritics) for fast validation
-_LEGAL_KEYWORDS = (
-    _TRANSACTION_VERBS
-    | {
-        # Assets / objects
-        "dat", "nha", "xe", "may", "phong", "can", "ho", "oto",
-        # Legal domains
-        "lao", "dong", "dan", "su", "hinh", "thuong", "mai",
-        "doanh", "nghiep", "dau", "tu", "tai", "chinh",
-        # Contract-related
-        "hop", "dong", "dich", "vu", "uy", "quyen", "bao", "hiem",
-        # Property / finance
-        "bat", "san", "tien", "von",
-        # Family / inheritance
-        "hon", "nhan", "gia", "dinh", "thua", "ke",
-        # General legal
-        "luat", "phap", "nghia", "kinh",
-    }
-)
-
-
 class InvalidCategoryError(ValueError):
     """Raised when a category name is not a valid legal domain."""
     pass
 
-
-# Contract template configurations (search queries per contract type)
-CONTRACT_TEMPLATES = {
-    "dat_dai": [
-        {
-            "contract_type": "mua_ban_dat",
-            "display_name": "Hợp đồng mua bán đất",
-            "search_queries": [
-                "điều kiện chuyển nhượng quyền sử dụng đất",
-                "hợp đồng chuyển nhượng quyền sử dụng đất",
-                "quyền nghĩa vụ bên chuyển nhượng bên nhận",
-                "giá đất thanh toán chuyển nhượng",
-                "thủ tục đăng ký biến động đất đai",
-            ],
-            "required_laws": ["Luật Đất đai 2024", "Bộ luật Dân sự 2015"],
-            "min_articles": 10,
-        },
-        {
-            "contract_type": "cho_thue_dat",
-            "display_name": "Hợp đồng cho thuê đất",
-            "search_queries": [
-                "cho thuê quyền sử dụng đất",
-                "hợp đồng thuê đất điều kiện",
-                "quyền nghĩa vụ bên cho thuê bên thuê đất",
-            ],
-            "required_laws": ["Luật Đất đai 2024", "Bộ luật Dân sự 2015"],
-            "min_articles": 8,
-        },
-        {
-            "contract_type": "chuyen_nhuong_dat",
-            "display_name": "Hợp đồng chuyển nhượng QSDĐ",
-            "search_queries": [
-                "chuyển nhượng quyền sử dụng đất",
-                "điều kiện chuyển nhượng đất",
-                "thủ tục chuyển nhượng đất đai",
-            ],
-            "required_laws": ["Luật Đất đai 2024", "Bộ luật Dân sự 2015"],
-            "min_articles": 10,
-        },
-    ],
-    "nha_o": [
-        {
-            "contract_type": "cho_thue_nha",
-            "display_name": "Hợp đồng thuê nhà ở",
-            "search_queries": [
-                "hợp đồng thuê nhà ở",
-                "quyền nghĩa vụ bên cho thuê bên thuê nhà",
-                "giá thuê phương thức thanh toán nhà",
-                "chấm dứt hợp đồng thuê nhà",
-            ],
-            "required_laws": ["Luật Nhà ở 2023", "Bộ luật Dân sự 2015"],
-            "min_articles": 8,
-        },
-        {
-            "contract_type": "mua_ban_nha",
-            "display_name": "Hợp đồng mua bán nhà ở",
-            "search_queries": [
-                "mua bán nhà ở điều kiện",
-                "hợp đồng mua bán nhà",
-                "quyền sở hữu nhà ở chuyển nhượng",
-            ],
-            "required_laws": ["Luật Nhà ở 2023", "Bộ luật Dân sự 2015"],
-            "min_articles": 8,
-        },
-    ],
-    "lao_dong": [
-        {
-            "contract_type": "hop_dong_lao_dong",
-            "display_name": "Hợp đồng lao động",
-            "search_queries": [
-                "hợp đồng lao động nội dung hình thức",
-                "quyền nghĩa vụ người lao động",
-                "quyền nghĩa vụ người sử dụng lao động",
-                "thời giờ làm việc nghỉ ngơi",
-                "tiền lương chế độ",
-            ],
-            "required_laws": ["Bộ luật Lao động 2019"],
-            "min_articles": 10,
-        },
-        {
-            "contract_type": "thu_viec",
-            "display_name": "Hợp đồng thử việc",
-            "search_queries": [
-                "thử việc thời gian điều kiện",
-                "tiền lương thử việc",
-                "kết thúc thử việc",
-            ],
-            "required_laws": ["Bộ luật Lao động 2019"],
-            "min_articles": 5,
-        },
-    ],
-    "dan_su": [
-        {
-            "contract_type": "vay_tien",
-            "display_name": "Hợp đồng vay tiền",
-            "search_queries": [
-                "hợp đồng vay tài sản",
-                "lãi suất vay quy định",
-                "nghĩa vụ trả nợ bên vay",
-                "thời hạn vay",
-            ],
-            "required_laws": ["Bộ luật Dân sự 2015"],
-            "min_articles": 5,
-        },
-        {
-            "contract_type": "uy_quyen",
-            "display_name": "Hợp đồng ủy quyền",
-            "search_queries": [
-                "hợp đồng ủy quyền",
-                "phạm vi ủy quyền",
-                "nghĩa vụ bên ủy quyền bên được ủy quyền",
-            ],
-            "required_laws": ["Bộ luật Dân sự 2015"],
-            "min_articles": 5,
-        },
-        {
-            "contract_type": "dich_vu",
-            "display_name": "Hợp đồng dịch vụ",
-            "search_queries": [
-                "hợp đồng dịch vụ",
-                "quyền nghĩa vụ bên cung ứng bên sử dụng dịch vụ",
-                "giá dịch vụ thanh toán",
-            ],
-            "required_laws": ["Bộ luật Dân sự 2015"],
-            "min_articles": 5,
-        },
-    ],
-}
-
-
-# Category configurations
-CATEGORIES = {
-    "dat_dai": CategoryConfig(
-        name="dat_dai",
-        display_name="Đất đai",
-        description="Luật Đất đai, nghị định hướng dẫn về quyền sử dụng đất, chuyển nhượng, thu hồi đất",
-        crawl_url="https://thuvienphapluat.vn/van-ban/Bat-dong-san/",
-        document_urls=[
-            "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Luat-Dat-dai-2024-31-2024-QH15-523642.aspx",
-            "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-102-2024-ND-CP-huong-dan-Luat-Dat-dai-603982.aspx",
-            "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-101-2024-ND-CP-dang-ky-cap-giay-chung-nhan-quyen-su-dung-dat-tai-san-gan-lien-dat-613131.aspx",
-        ],
-        max_pages=20,
-        rate_limit_seconds=4.0,
-    ),
-    "nha_o": CategoryConfig(
-        name="nha_o",
-        display_name="Nhà ở",
-        description="Luật Nhà ở, nghị định về mua bán, cho thuê, quản lý nhà ở",
-        crawl_url="https://thuvienphapluat.vn/van-ban/Bat-dong-san/",
-        document_urls=[],
-        max_pages=10,
-        rate_limit_seconds=4.0,
-    ),
-    "lao_dong": CategoryConfig(
-        name="lao_dong",
-        display_name="Lao động",
-        description="Bộ luật Lao động, nghị định về hợp đồng lao động, tiền lương, bảo hiểm",
-        crawl_url="https://thuvienphapluat.vn/van-ban/Lao-dong-Tien-luong/",
-        document_urls=[],
-        max_pages=10,
-        rate_limit_seconds=4.0,
-    ),
-    "dan_su": CategoryConfig(
-        name="dan_su",
-        display_name="Dân sự",
-        description="Bộ luật Dân sự, nghị định về hợp đồng, tài sản, thừa kế, bồi thường thiệt hại",
-        crawl_url="https://thuvienphapluat.vn/van-ban/Quyen-dan-su/",
-        document_urls=[],
-        max_pages=10,
-        rate_limit_seconds=4.0,
-    ),
-    "doanh_nghiep": CategoryConfig(
-        name="doanh_nghiep",
-        display_name="Doanh nghiệp",
-        description="Luật Doanh nghiệp, luật Đầu tư, nghị định về đăng ký kinh doanh",
-        crawl_url="https://thuvienphapluat.vn/van-ban/Doanh-nghiep/",
-        document_urls=[],
-        max_pages=10,
-        rate_limit_seconds=4.0,
-    ),
-    "thuong_mai": CategoryConfig(
-        name="thuong_mai",
-        display_name="Thương mại",
-        description="Luật Thương mại, nghị định về mua bán hàng hóa, dịch vụ thương mại",
-        crawl_url="https://thuvienphapluat.vn/van-ban/Thuong-mai/",
-        document_urls=[],
-        max_pages=10,
-        rate_limit_seconds=4.0,
-    ),
-}
-
-# URL pattern → category name mapping (for fix-data migration)
-URL_CATEGORY_MAP = {
-    "Bat-dong-san": "dat_dai",
-    "Lao-dong": "lao_dong",
-    "Quyen-dan-su": "dan_su",
-    "Doanh-nghiep": "doanh_nghiep",
-    "Thuong-mai": "thuong_mai",
-}
+# Default crawl settings (used when not stored in DB)
+_DEFAULT_RATE_LIMIT = 4.0
+_DEFAULT_MAX_PAGES = 20
 
 
 class PipelineService:
@@ -276,29 +52,22 @@ class PipelineService:
         self._category_id_cache: dict[str, str] = {}
 
     def sync_categories(self) -> int:
-        """Sync CATEGORIES dict into legal_categories table. Returns count synced."""
-        if not hasattr(self.db, "_write"):
-            logger.warning("sync_categories requires Supabase backend")
+        """Load categories from DB into cache. Returns count loaded."""
+        if not hasattr(self.db, "_read"):
             return 0
 
-        client = self.db._write()
+        client = self.db._read()
+        result = (
+            client.table("legal_categories")
+            .select("id, name")
+            .eq("is_active", True)
+            .execute()
+        )
         count = 0
-        for name, config in CATEGORIES.items():
-            data = {
-                "name": name,
-                "display_name": config.display_name,
-                "description": config.description,
-                "crawl_url": config.crawl_url,
-                "is_active": True,
-            }
-            result = client.table("legal_categories").upsert(
-                data, on_conflict="name"
-            ).execute()
-            if result.data:
-                self._category_id_cache[name] = result.data[0]["id"]
-                count += 1
-
-        logger.info(f"Synced {count} categories to legal_categories")
+        for cat in result.data:
+            self._category_id_cache[cat["name"]] = cat["id"]
+            count += 1
+        logger.info(f"Loaded {count} categories from DB")
         return count
 
     def get_category_id(self, category_name: str) -> Optional[str]:
@@ -357,45 +126,6 @@ class PipelineService:
             return best_id
         return None
 
-    def _subject_match_category(self, name: str) -> Optional[str]:
-        """Match by domain subject after stripping transaction verbs.
-
-        "thue_xe" and "mua_xe" both have subject {"xe"} → same category.
-        "thue_nha" has subject {"nha"} which overlaps with "nha_o" → match.
-        """
-        if not hasattr(self.db, "_read"):
-            return None
-
-        parts = set(name.split("_"))
-        subject = parts - _TRANSACTION_VERBS
-        if not subject:
-            return None
-
-        client = self.db._read()
-        cats = client.table("legal_categories").select("id, name").execute()
-        if not cats.data:
-            return None
-
-        for cat in cats.data:
-            cat_parts = set(cat["name"].split("_"))
-            cat_subject = cat_parts - _TRANSACTION_VERBS
-            # Match if subjects share at least one non-verb word
-            if subject & cat_subject:
-                self._category_id_cache[cat["name"]] = cat["id"]
-                self._category_id_cache[name] = cat["id"]
-                logger.info(
-                    f"Subject matched category: '{name}' → '{cat['name']}' "
-                    f"(shared: {subject & cat_subject})"
-                )
-                return cat["id"]
-        return None
-
-    @staticmethod
-    def _has_legal_keywords(name: str) -> bool:
-        """Fast check: does normalized name contain any known legal keywords?"""
-        parts = name.split("_")
-        return any(part in _LEGAL_KEYWORDS for part in parts)
-
     @staticmethod
     def _llm_validate_category(raw_name: str) -> Optional[str]:
         """Ask LLM whether this is a valid Vietnamese legal category.
@@ -403,15 +133,9 @@ class PipelineService:
         Returns a suggested category name if valid, None if not.
         """
         try:
-            from groq import Groq
+            from legal_chatbot.utils.llm import call_llm
 
-            settings = get_settings()
-            if not settings.groq_api_key:
-                return None
-
-            client = Groq(api_key=settings.groq_api_key)
-            response = client.chat.completions.create(
-                model=settings.llm_model,
+            answer = call_llm(
                 messages=[
                     {
                         "role": "system",
@@ -427,12 +151,10 @@ class PipelineService:
                 ],
                 temperature=0,
                 max_tokens=50,
-            )
+            ).strip()
 
-            answer = (response.choices[0].message.content or "").strip()
             if answer.upper().startswith("YES|"):
                 suggested = answer.split("|", 1)[1].strip()
-                # Normalize the LLM suggestion too
                 return normalize_category_name(suggested) if suggested else None
             return None
 
@@ -513,10 +235,8 @@ class PipelineService:
         Validation layers:
         1. Normalize → exact match in DB
         2. Fuzzy match (edit distance ≤ 2)
-        3. Subject match (strip transaction verbs, compare domain words)
-        4. Keyword validation (known legal terms)
-        5. LLM fallback (ask Groq if it's a real legal domain)
-        6. Auto-create if validated
+        3. LLM validation (ask Claude if it's a real legal domain)
+        4. Auto-create if validated
 
         Raises InvalidCategoryError if category is not a valid legal domain.
         """
@@ -532,30 +252,22 @@ class PipelineService:
         if fuzzy:
             return fuzzy
 
-        # 3. Subject match — "thue_xe" matches "mua_xe" (same subject "xe")
-        subject = self._subject_match_category(name)
-        if subject:
-            return subject
-
-        # 4. Validate before auto-creating
-        if not self._has_legal_keywords(name):
-            # 5. LLM fallback — maybe it's a valid domain we don't have keywords for
-            suggested = self._llm_validate_category(raw_name)
-            if suggested:
-                # LLM said it's valid, use its suggested name
-                name = suggested
-                # Check again if this suggested name already exists
-                existing = self.get_category_id(name)
-                if existing:
-                    return existing
-                fuzzy = self._fuzzy_match_category(name)
-                if fuzzy:
-                    return fuzzy
-            else:
-                raise InvalidCategoryError(
-                    f"'{raw_name}' không phải lĩnh vực pháp luật hợp lệ. "
-                    f"Các lĩnh vực có sẵn: {', '.join(sorted(CATEGORIES.keys()))}"
-                )
+        # 3. LLM validation — ask if it's a valid legal domain
+        suggested = self._llm_validate_category(raw_name)
+        if suggested:
+            name = suggested
+            existing = self.get_category_id(name)
+            if existing:
+                return existing
+            fuzzy = self._fuzzy_match_category(name)
+            if fuzzy:
+                return fuzzy
+        else:
+            available = ", ".join(sorted(self._category_id_cache.keys())) or "(chưa có)"
+            raise InvalidCategoryError(
+                f"'{raw_name}' không phải lĩnh vực pháp luật hợp lệ. "
+                f"Các lĩnh vực có sẵn: {available}"
+            )
 
         if not hasattr(self.db, "_write"):
             return ""
@@ -584,30 +296,33 @@ class PipelineService:
 
     async def run(
         self,
-        category: str,
-        limit: int = 50,
+        topic: str = "",
+        limit: int = 20,
         trigger_type: str = "manual",
         force: bool = False,
     ) -> PipelineRun:
-        """Execute full pipeline for a category.
+        """Execute full pipeline.
 
-        Supports incremental crawl via document_registry + content hash comparison.
+        Accepts a topic (e.g. "đất đai", "lao động"). The system will:
+        1. Search thuvienphapluat.vn for the topic
+        2. Crawl discovered documents
+        3. Auto-detect category per document from its title
+        4. Index articles + generate embeddings
+        5. Auto-discover contract templates
 
         Args:
-            category: Category name (e.g. 'dat_dai')
+            topic: Search keyword (e.g. "đất đai", "hôn nhân gia đình")
             limit: Max documents per run
             trigger_type: 'manual' | 'scheduled' | 'forced'
             force: Skip hash comparison, re-crawl everything
-
-        Phases:
-        1. DISCOVERY: Load URLs from document_registry (or fallback to hardcoded)
-        2. CRAWL: Fetch, hash compare, skip unchanged
-        3. INDEX: Store in DB + generate embeddings
-        4. VALIDATE: Verify data integrity + update category counts
         """
-        config = self.get_category_config(category)
-        if not config:
-            raise ValueError(f"Unknown category: {category}")
+        config = CategoryConfig(
+            name="auto",
+            display_name=topic or "Auto",
+            crawl_url="",
+            rate_limit_seconds=_DEFAULT_RATE_LIMIT,
+            max_pages=_DEFAULT_MAX_PAGES,
+        )
 
         start_time = time.time()
         run = PipelineRun(
@@ -617,26 +332,27 @@ class PipelineService:
         )
 
         try:
-            logger.info(f"Pipeline: {config.display_name} (trigger={trigger_type}, force={force})")
+            logger.info(f"Pipeline: '{topic}' (trigger={trigger_type}, force={force})")
 
-            # Phase 1: Discovery — load from document_registry or fallback
-            logger.info("Phase 1: Discovery...")
-            registry_entries = self._get_document_registry(category)
-            if registry_entries:
-                urls = [e["url"] for e in registry_entries[:limit]]
-                logger.info(f"  Loaded {len(urls)} URLs from document_registry")
+            # Phase 1: Discovery — search thuvienphapluat.vn
+            logger.info(f"Phase 1: Searching thuvienphapluat.vn for '{topic}'...")
+            discovered = await self.crawler.search_documents(topic, limit=limit)
+            crawl_urls = [d["url"] for d in discovered]
+            registry_entries = []
+
+            if crawl_urls:
+                logger.info(f"  Found {len(crawl_urls)} documents")
             else:
-                urls = config.document_urls[:limit]
-                logger.info(f"  Fallback to hardcoded URLs: {len(urls)}")
+                logger.warning(f"  No documents found for '{topic}'")
 
-            run.documents_found = len(urls)
+            run.documents_found = len(crawl_urls)
 
             # Phase 2: Crawl (incremental)
             logger.info("Phase 2: Crawling...")
             crawl_results = []
             registry_map = {e["url"]: e for e in registry_entries} if registry_entries else {}
 
-            for url in urls:
+            for url in crawl_urls:
                 try:
                     result = await self.crawl_document(url, config)
                     if not result:
@@ -710,29 +426,31 @@ class PipelineService:
                 run.status = PipelineStatus.FAILED
                 logger.warning("Pipeline validation failed")
 
-            # Resolve category_id (auto-created during indexing from doc titles)
-            category_id = self.get_category_id(category)
-            run.category_id = category_id
+            # Collect all categories that were touched during indexing
+            touched_categories = set(self._category_id_cache.keys())
 
-            # Update category counts
-            if category_id and hasattr(self.db, "update_category_counts"):
+            # Update category counts for all touched categories
+            if hasattr(self.db, "update_category_counts"):
+                for cat_name in touched_categories:
+                    cat_id = self.get_category_id(cat_name)
+                    if cat_id:
+                        try:
+                            self.db.update_category_counts(cat_id)
+                        except Exception as e:
+                            logger.warning(f"Failed to update counts for {cat_name}: {e}")
+
+            # Phase 5: Auto-discover contract templates for all touched categories
+            logger.info("Phase 5: Auto-discover contract templates...")
+            total_templates = 0
+            for cat_name in touched_categories:
                 try:
-                    self.db.update_category_counts(category_id)
+                    n = self.seed_templates_for_category(cat_name, cache_articles=True)
+                    if n:
+                        logger.info(f"  {cat_name}: {n} templates discovered")
+                        total_templates += n
                 except Exception as e:
-                    logger.warning(f"Failed to update category counts: {e}")
-
-            # Phase 5: Auto-seed registry + templates (with cached search results)
-            logger.info("Phase 5: Auto-seed registry & templates...")
-            try:
-                reg_count = self.seed_registry_for_category(category)
-                tmpl_count = self.seed_templates_for_category(
-                    category, cache_articles=True
-                )
-                logger.info(
-                    f"  Seeded: {reg_count} registry entries, {tmpl_count} templates (with cached articles)"
-                )
-            except Exception as e:
-                logger.warning(f"Auto-seed failed (non-critical): {e}")
+                    logger.warning(f"Template discovery failed for {cat_name}: {e}")
+            logger.info(f"  Total: {total_templates} templates")
 
         except Exception as e:
             run.status = PipelineStatus.FAILED
@@ -889,35 +607,92 @@ class PipelineService:
         return True
 
     def get_category_config(self, name: str) -> Optional[CategoryConfig]:
-        """Get crawl configuration for a category."""
-        return CATEGORIES.get(name)
+        """Get crawl configuration for a category from DB."""
+        if not hasattr(self.db, "_read"):
+            return None
+
+        client = self.db._read()
+        result = (
+            client.table("legal_categories")
+            .select("name, display_name, description, crawl_url")
+            .eq("name", name)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        if not result.data:
+            return None
+
+        cat = result.data[0]
+
+        # Load document URLs from registry
+        registry = self._get_document_registry(name)
+        doc_urls = [e["url"] for e in registry] if registry else []
+
+        return CategoryConfig(
+            name=cat["name"],
+            display_name=cat.get("display_name", name),
+            description=cat.get("description", ""),
+            crawl_url=cat.get("crawl_url", ""),
+            document_urls=doc_urls,
+            rate_limit_seconds=_DEFAULT_RATE_LIMIT,
+            max_pages=_DEFAULT_MAX_PAGES,
+        )
 
     def seed_templates_for_category(self, category: str, cache_articles: bool = False) -> int:
-        """Seed contract templates for a category. Returns count seeded.
+        """Auto-discover and seed contract templates for a category.
 
-        If cache_articles=True, also runs template search queries and caches
-        the matching articles in the template's cached_articles JSONB column.
-        This requires the embedding model to be loaded (self.embedding).
+        Uses LLM to analyze crawled articles and determine what contract types
+        can be created. No hardcoded template definitions — everything is
+        discovered from the actual legal content.
+
+        Steps:
+          1. Load articles for the category from DB
+          2. LLM Step 1: Discover contract types from articles
+          3. For each type, run search queries → cache articles
+          4. LLM Step 2: Generate required_fields from cached articles
+          5. Upsert each template to Supabase
+
+        Returns count of templates seeded.
         """
         if not hasattr(self.db, "upsert_contract_template"):
-            return 0
-
-        templates = CONTRACT_TEMPLATES.get(category, [])
-        if not templates:
             return 0
 
         category_id = self.get_category_id(category)
         if not category_id:
             return 0
 
-        count = 0
-        for tmpl in templates:
-            tmpl_data = {**tmpl, "category_id": category_id}
+        # Load articles for LLM context
+        if not hasattr(self.db, "get_articles_by_category"):
+            return 0
 
-            # Pre-compute search results if requested
-            if cache_articles and hasattr(self.db, "search_articles"):
+        articles = self.db.get_articles_by_category(category, limit=80)
+        if not articles:
+            logger.warning(f"No articles found for category {category}, skipping template discovery")
+            return 0
+
+        # LLM Step 1: Discover contract types
+        discovered = self._discover_contract_types(category, articles)
+        if not discovered:
+            logger.warning(f"LLM could not discover contract types for {category}")
+            return 0
+
+        logger.info(f"Discovered {len(discovered)} contract types for {category}")
+
+        count = 0
+        for tmpl in discovered:
+            tmpl_data = {
+                "contract_type": tmpl["contract_type"],
+                "display_name": tmpl["display_name"],
+                "search_queries": tmpl.get("search_queries", []),
+                "category_id": category_id,
+            }
+
+            # Cache articles via search queries
+            cached = []
+            if cache_articles and hasattr(self.db, "search_articles") and tmpl_data["search_queries"]:
                 try:
-                    cached = self._run_template_queries(tmpl.get("search_queries", []))
+                    cached = self._run_template_queries(tmpl_data["search_queries"])
                     tmpl_data["cached_articles"] = cached
                     tmpl_data["cached_at"] = datetime.now().isoformat()
                     logger.info(
@@ -925,6 +700,18 @@ class PipelineService:
                     )
                 except Exception as e:
                     logger.warning(f"Failed to cache articles for {tmpl['contract_type']}: {e}")
+
+            # LLM Step 2: Generate required_fields from cached articles
+            if cached:
+                try:
+                    required_fields = self._generate_required_fields(tmpl, cached)
+                    if required_fields:
+                        tmpl_data["required_fields"] = required_fields
+                        logger.info(
+                            f"  Generated {len(required_fields.get('fields', []))} fields for {tmpl['contract_type']}"
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to generate fields for {tmpl['contract_type']}: {e}")
 
             try:
                 self.db.upsert_contract_template(tmpl_data)
@@ -934,6 +721,170 @@ class PipelineService:
 
         logger.info(f"Seeded {count} templates for {category}")
         return count
+
+    def _discover_contract_types(self, category: str, articles: list) -> list[dict] | None:
+        """Use LLM to discover what contract types can be created from articles.
+
+        Args:
+            category: Category slug (e.g. "dat_dai")
+            articles: List of articles with article_number, title, content, document_title
+
+        Returns:
+            List of dicts: [{contract_type, display_name, search_queries}, ...]
+        """
+        from legal_chatbot.utils.llm import call_llm_json
+
+        # Build article summaries — titles + first 200 chars of content
+        article_summaries = []
+        seen = set()
+        for a in articles:
+            key = (a.get("article_number"), a.get("document_title"))
+            if key in seen:
+                continue
+            seen.add(key)
+            summary = f"- Điều {a.get('article_number', '?')} ({a.get('document_title', '')}): {a.get('title', '')} — {a.get('content', '')[:200]}"
+            article_summaries.append(summary)
+            if len(article_summaries) >= 40:
+                break
+
+        articles_text = "\n".join(article_summaries)
+
+        # Collect unique document titles
+        doc_titles = list({a.get("document_title", "") for a in articles if a.get("document_title")})
+        docs_text = "\n".join(f"- {t}" for t in doc_titles)
+
+        prompt = f"""Bạn là chuyên gia pháp luật Việt Nam. Dựa trên các điều luật đã crawl bên dưới, hãy xác định các LOẠI HỢP ĐỒNG có thể tạo được.
+
+VĂN BẢN PHÁP LUẬT:
+{docs_text}
+
+MỘT SỐ ĐIỀU LUẬT TIÊU BIỂU:
+{articles_text}
+
+YÊU CẦU: Xác định các loại hợp đồng phổ biến có thể tạo dựa trên các điều luật trên.
+Trả về JSON array (KHÔNG có text nào khác ngoài JSON):
+[
+  {{
+    "contract_type": "slug_tieng_viet_khong_dau",
+    "display_name": "Tên hợp đồng đầy đủ tiếng Việt có dấu",
+    "search_queries": ["truy vấn tìm kiếm 1", "truy vấn tìm kiếm 2", "truy vấn 3"]
+  }}
+]
+
+QUY TẮC:
+1. contract_type phải là slug tiếng Việt không dấu, snake_case (vd: mua_ban_dat, cho_thue_nha, hop_dong_lao_dong)
+2. display_name phải có dấu tiếng Việt đầy đủ (vd: "Hợp đồng mua bán đất")
+3. search_queries là 3-5 câu truy vấn tìm kiếm để tìm điều luật liên quan cho loại hợp đồng đó
+4. Chỉ liệt kê các loại hợp đồng mà điều luật đã crawl CÓ ĐỦ cơ sở pháp lý để tạo
+5. Không bịa ra loại hợp đồng nếu không có điều luật liên quan
+6. Thường mỗi lĩnh vực pháp luật có 1-4 loại hợp đồng phổ biến
+7. Chỉ trả về JSON array, không giải thích"""
+
+        try:
+            discovered = call_llm_json(
+                messages=[
+                    {"role": "system", "content": "Bạn là API trả về JSON. Chỉ trả về JSON hợp lệ, không có text khác."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,
+                max_tokens=2000,
+            )
+
+            if not isinstance(discovered, list) or not discovered:
+                logger.warning(f"LLM returned invalid discovery result for {category}")
+                return None
+
+            # Validate each entry has required keys
+            valid = []
+            for entry in discovered:
+                if entry.get("contract_type") and entry.get("display_name"):
+                    valid.append({
+                        "contract_type": entry["contract_type"],
+                        "display_name": entry["display_name"],
+                        "search_queries": entry.get("search_queries", []),
+                    })
+
+            return valid if valid else None
+
+        except Exception as e:
+            logger.warning(f"LLM discovery failed for {category}: {e}")
+            return None
+
+    def _generate_required_fields(self, template: dict, cached_articles: list) -> dict | None:
+        """Use LLM to generate required_fields JSONB from cached articles.
+
+        Analyzes the legal articles and generates:
+        - fields: list of {name, label, required} for the contract form
+        - field_groups: prefix-based grouping for HTML preview sections
+        - common_groups: shared financial/timeline groups
+        - legal_refs: specific article references
+        - key_terms: important legal terms from articles
+        """
+        from legal_chatbot.utils.llm import call_llm_json
+
+        # Build article summaries for LLM context
+        article_texts = []
+        for a in cached_articles[:15]:  # Limit to top 15 most relevant
+            text = f"Điều {a.get('article_number', '?')} ({a.get('document_title', '')}): {a.get('content', '')[:500]}"
+            article_texts.append(text)
+
+        articles_context = "\n\n".join(article_texts)
+
+        prompt = f"""Bạn là chuyên gia pháp luật Việt Nam. Dựa trên các điều luật bên dưới, hãy tạo danh sách các trường thông tin cần thiết cho "{template['display_name']}".
+
+ĐIỀU LUẬT THAM KHẢO:
+{articles_context}
+
+YÊU CẦU: Trả về JSON với cấu trúc sau (KHÔNG có text nào khác ngoài JSON):
+{{
+  "fields": [
+    {{"name": "field_name_snake_case", "label": "Nhãn tiếng Việt có dấu", "required": true/false}}
+  ],
+  "field_groups": [
+    {{"prefix": "party_a_prefix_", "key": "section_key", "label": "TÊN NHÓM TIẾNG VIỆT (BÊN A)"}}
+  ],
+  "common_groups": [
+    {{"prefix": "payment_", "key": "tai_chinh", "label": "TÀI CHÍNH"}}
+  ],
+  "legal_refs": ["Điều X Luật Y"],
+  "key_terms": ["Điều kiện quan trọng từ luật"]
+}}
+
+QUY TẮC:
+1. Mỗi bên (A, B) cần: họ tên, ngày sinh, CCCD, ngày cấp, nơi cấp, địa chỉ, SĐT
+2. Prefix field name theo bên: vd landlord_, tenant_, seller_, buyer_, transferor_, transferee_, employer_, employee_
+3. Thông tin tài sản/đối tượng: địa chỉ, diện tích, giấy chứng nhận, mô tả
+4. Tài chính: giá, đặt cọc, phương thức thanh toán
+5. Thời hạn: ngày bắt đầu, ngày kết thúc, thời hạn
+6. field_groups gom các fields theo prefix của từng bên và đối tượng
+7. common_groups gom fields tài chính, thời hạn
+8. Label phải có dấu tiếng Việt đầy đủ
+9. Chỉ trả về JSON, không giải thích"""
+
+        try:
+            required_fields = call_llm_json(
+                messages=[
+                    {"role": "system", "content": "Bạn là API trả về JSON. Chỉ trả về JSON hợp lệ, không có text khác."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,
+                max_tokens=4000,
+            )
+
+            if not isinstance(required_fields, dict):
+                logger.warning(f"LLM returned non-dict for {template['contract_type']}")
+                return None
+
+            # Validate structure
+            if "fields" not in required_fields or not required_fields["fields"]:
+                logger.warning(f"LLM returned empty fields for {template['contract_type']}")
+                return None
+
+            return required_fields
+
+        except Exception as e:
+            logger.warning(f"LLM generation failed for {template['contract_type']}: {e}")
+            return None
 
     def _run_template_queries(self, queries: list, top_k: int = 10) -> list:
         """Run search queries and return deduplicated results."""
@@ -959,38 +910,16 @@ class PipelineService:
         results.sort(key=lambda x: x["similarity"], reverse=True)
         return results
 
-    def seed_registry_for_category(self, category: str) -> int:
-        """Seed document registry entries for a category. Returns count seeded."""
-        if not hasattr(self.db, "upsert_registry_entry"):
-            return 0
-
-        config = CATEGORIES.get(category)
-        if not config or not config.document_urls:
-            return 0
-
-        category_id = self.get_category_id(category)
-        if not category_id:
-            return 0
-
-        count = 0
-        for i, url in enumerate(config.document_urls):
-            entry = {
-                "category_id": category_id,
-                "url": url,
-                "title": f"{config.display_name} - Doc {i + 1}",
-                "role": "primary" if i == 0 else "related",
-                "priority": i + 1,
-            }
-            try:
-                self.db.upsert_registry_entry(entry)
-                count += 1
-            except Exception as e:
-                logger.warning(f"Failed to seed registry entry {url}: {e}")
-
-        logger.info(f"Seeded {count} registry entries for {category}")
-        return count
-
-    @staticmethod
-    def list_categories() -> List[CategoryConfig]:
-        """List all available categories."""
-        return list(CATEGORIES.values())
+    def list_categories(self) -> List[dict]:
+        """List all categories from DB."""
+        if not hasattr(self.db, "_read"):
+            return []
+        client = self.db._read()
+        result = (
+            client.table("legal_categories")
+            .select("name, display_name, description, crawl_url, is_active")
+            .eq("is_active", True)
+            .order("name")
+            .execute()
+        )
+        return result.data

@@ -140,8 +140,11 @@ class PipelineWorker:
                     f"Running pipeline for {category_name} "
                     f"(attempt {attempt}/{max_retries})"
                 )
+                # Use category display_name as search topic
+                config = self.pipeline.get_category_config(category_name)
+                search_topic = config.display_name if config else category_name
                 result = await self.pipeline.run(
-                    category=category_name,
+                    topic=search_topic,
                     trigger_type="scheduled",
                 )
 

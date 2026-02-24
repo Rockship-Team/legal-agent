@@ -6,7 +6,7 @@ Auto-generated from all feature plans. Last updated: 2026-02-23
 - Python 3.11+ (All modules)
 - Supabase PostgreSQL + pgvector (production DB + vector search)
 - SQLite (local fallback, no worker/template support)
-- Groq API with LLaMA 3.3 70B (LLM)
+- Anthropic Claude API (LLM + web search)
 - Typer + Rich (CLI framework)
 - ReportLab (PDF generation)
 - Playwright + BeautifulSoup + stealth (Web crawling)
@@ -51,6 +51,7 @@ legal_chatbot/
       003_worker.sql    # Worker + registry + templates
   utils/                # Shared utilities
     config.py           # Settings with worker/chat config
+    llm.py              # Shared Anthropic LLM client + web search
 
 data/
   raw/                  # Crawled documents
@@ -73,16 +74,11 @@ pip install -r requirements.txt
 python -m legal_chatbot db migrate     # Shows migration SQL files
 python -m legal_chatbot db status      # Check connection
 
-# Seed data (run once after migration)
-python -m legal_chatbot seed-templates   # Contract templates
-python -m legal_chatbot seed-registry    # Document registry URLs
-
-# Pipeline (incremental crawl)
-python -m legal_chatbot pipeline crawl --category dat_dai
-python -m legal_chatbot pipeline crawl --category dat_dai --force   # Re-crawl all
+# Pipeline (topic-based crawl — auto-discovers URLs via Claude web search)
+python -m legal_chatbot pipeline crawl -t "đất đai"
+python -m legal_chatbot pipeline crawl -t "lao động" --force   # Re-crawl all
 python -m legal_chatbot pipeline status        # Category stats + worker info
 python -m legal_chatbot pipeline categories    # List categories
-python -m legal_chatbot pipeline browse        # Browse data hierarchy
 
 # Worker (background scheduled crawl)
 python -m legal_chatbot pipeline worker --category start
@@ -118,12 +114,12 @@ pytest --cov=legal_chatbot
 
 ```bash
 # Required
-GROQ_API_KEY=gsk_...
+ANTHROPIC_API_KEY=sk-ant-...
 DB_MODE=supabase
 SUPABASE_URL=https://xxx.supabase.co
 SUPABASE_KEY=eyJ...                    # anon key (reads)
 SUPABASE_SERVICE_KEY=eyJ...            # service role key (writes)
-LLM_MODEL=llama-3.3-70b-versatile
+LLM_MODEL=claude-sonnet-4-20250514
 
 # Worker (optional)
 WORKER_ENABLED=true
@@ -139,16 +135,17 @@ CHAT_MODE=db_only
 ## Architecture (003)
 
 - **DB-First**: All chat, research, contract creation use ONLY Supabase pgvector. No web search fallback.
+- **Anthropic-Only LLM**: All LLM calls via `utils/llm.py` shared client. No Groq.
+- **Auto-Discovery**: Pipeline accepts topic → Claude web_search finds URLs → Playwright crawls → auto-detect category per document from title → LLM discovers contract templates.
+- **No Hardcoded Data**: No hardcoded categories, URLs, or templates. Everything auto-discovered from crawled content.
 - **No-Data Response**: Friendly Vietnamese message when category has no data. Never hallucinate.
-- **Contract Templates**: Pre-configured in `contract_templates` DB table with search_queries per type.
-- **Document Registry**: `document_registry` table tracks specific URLs to crawl per category.
 - **Incremental Crawl**: Content hash (SHA-256) comparison. Skip unchanged documents.
 - **Background Worker**: APScheduler cron jobs per category. Weekly by default. Not auto-started.
 
 ## Recent Changes
 - 003-change-data-pipeline: DB-First architecture, background worker, contract templates, incremental crawl (2026-02-23)
 - 002-connect-db-and-design-data-pipeline: Supabase + pgvector integration (2026-02-05)
-- 001-planning: Simplified to Python-only CLI with Groq API (2026-02-05)
+- 001-planning: Simplified to Python-only CLI with Anthropic Claude API (2026-02-05)
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->

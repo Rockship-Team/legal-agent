@@ -1,6 +1,7 @@
 """Interactive chat service with session state and contract management"""
 
 import asyncio
+import json
 import random
 import re
 import tempfile
@@ -13,24 +14,14 @@ from uuid import uuid4
 from pydantic import BaseModel
 
 from legal_chatbot.utils.config import get_settings
+from legal_chatbot.utils.llm import call_llm, call_llm_json
 from legal_chatbot.utils.vietnamese import remove_diacritics
+from legal_chatbot.services.chat import CATEGORY_KEYWORDS
 from legal_chatbot.services.research import ResearchService, ResearchResult
-from legal_chatbot.services.dynamic_template import DynamicTemplateGenerator, DynamicTemplate
+from legal_chatbot.services.dynamic_template import DynamicTemplate, DynamicField
+from legal_chatbot.services.contract import INPUT_TO_TYPE, SLUG_ALIAS
 from legal_chatbot.services.generator import GeneratorService
-
-
-def get_llm_client():
-    """Get LLM client based on configuration"""
-    settings = get_settings()
-
-    if settings.llm_provider == "anthropic" and settings.anthropic_api_key:
-        from anthropic import Anthropic
-        return Anthropic(api_key=settings.anthropic_api_key), "anthropic", settings.llm_model
-    elif settings.groq_api_key:
-        from groq import Groq
-        return Groq(api_key=settings.groq_api_key), "groq", settings.llm_model
-    else:
-        return None, None, None
+from legal_chatbot.services.pdf_generator import UniversalPDFGenerator
 
 
 class ContractDraft(BaseModel):
@@ -46,6 +37,10 @@ class ContractDraft(BaseModel):
     current_field_index: int = 0
     # State: 'collecting' | 'ready' | 'exported'
     state: str = 'collecting'
+    # Generated articles (ĐIỀU 1-9) from LLM
+    articles: list[dict] = []
+    # Path to saved contract JSON
+    contract_json_path: Optional[str] = None
 
 
 class ChatSession(BaseModel):
@@ -82,127 +77,192 @@ class InteractiveChatService:
     """Interactive chat service with research, contract generation, and editing"""
 
     # Human-like system prompt - conversational, friendly, natural
-    SYSTEM_PROMPT = """Ban la mot chuyen vien tu van phap ly nhiet tinh va than thien. Hay noi chuyen tu nhien nhu mot nguoi that, khong qua trang trong hay may moc.
+    SYSTEM_PROMPT = """Bạn là một chuyên viên tư vấn pháp lý nhiệt tình và thân thiện. Hãy nói chuyện tự nhiên như một người thật, không quá trang trọng hay máy móc.
 
-PHONG CACH GIAO TIEP:
-- Noi ngan gon, di thang vao van de
-- Dung ngon ngu binh thuong, de hieu, tranh tu ngu qua chuyen mon
-- Co the dung cau cam than, cau hoi de tao su gan gui
-- Khong liet ke dai dong, chi noi nhung gi can thiet
-- The hien su dong cam khi nguoi dung gap van de
+PHONG CÁCH GIAO TIẾP:
+- Nói ngắn gọn, đi thẳng vào vấn đề
+- Dùng ngôn ngữ bình thường, dễ hiểu, tránh từ ngữ quá chuyên môn
+- Có thể dùng câu cảm thán, câu hỏi để tạo sự gần gũi
+- Không liệt kê dài dòng, chỉ nói những gì cần thiết
+- Thể hiện sự đồng cảm khi người dùng gặp vấn đề
 
-VI DU CACH TRA LOI:
-- Thay vi: "Theo quy dinh tai Dieu 121 Luat Nha o 2014..."
-- Hay noi: "A, viec nay thi theo Luat Nha o 2014 quy dinh kha ro ne. Cu the la..."
+VÍ DỤ CÁCH TRẢ LỜI:
+- Thay vì: "Theo quy định tại Điều 121 Luật Nhà ở 2014..."
+- Hãy nói: "À, việc này thì theo Luật Nhà ở 2014 quy định khá rõ nè. Cụ thể là..."
 
-- Thay vi: "Toi se giup ban tao hop dong. Cac truong can dien bao gom: 1. Ten ben A, 2. Dia chi..."
-- Hay noi: "OK, minh lam hop dong nhe! Cho minh hoi, ben cho thue ten gi?"
+- Thay vì: "Tôi sẽ giúp bạn tạo hợp đồng. Các trường cần điền bao gồm: 1. Tên bên A, 2. Địa chỉ..."
+- Hãy nói: "OK, mình làm hợp đồng nhé! Cho mình hỏi, bên cho thuê tên gì?"
 
-NGUYEN TAC:
-1. Tra loi dua tren nghien cuu tu thu vien phap luat, nhung dien dat don gian
-2. Khi tao hop dong, HOI TUNG THONG TIN MOT, khong liet ke het cac truong
-3. Khong show noi dung hop dong trong chat - chi show khi xem tren web
-4. Chu dong goi y buoc tiep theo
+NGUYÊN TẮC:
+1. Trả lời dựa trên nghiên cứu từ thư viện pháp luật, nhưng diễn đạt đơn giản
+2. Khi tạo hợp đồng, HỎI TỪNG THÔNG TIN MỘT, không liệt kê hết các trường
+3. Không show nội dung hợp đồng trong chat - chỉ show khi xem trên web
+4. Chủ động gợi ý bước tiếp theo
 
-Luu y: Day chi la tham khao, khong thay the tu van phap ly chuyen nghiep."""
+Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuyên nghiệp."""
 
     # Human-like responses for various situations
     HUMAN_RESPONSES = {
         'greeting': [
-            "Chao ban! Minh co the giup gi cho ban?",
-            "Hey! Ban can tu van ve van de gi?",
-            "Chao! Hom nay ban can ho tro gi ne?",
+            "Chào bạn! Mình có thể giúp gì cho bạn?",
+            "Hey! Bạn cần tư vấn về vấn đề gì?",
+            "Chào! Hôm nay bạn cần hỗ trợ gì nè?",
         ],
         'contract_start': [
-            "OK, minh se giup ban lam hop dong {type}. De bat dau, cho minh hoi nhe:",
-            "Duoc roi, lam hop dong {type} ha. Minh can hoi ban vai thong tin:",
-            "Hop dong {type} nhe! De minh hoi tung cai mot cho de:",
+            "OK, mình sẽ giúp bạn làm hợp đồng {type}. Để bắt đầu, cho mình hỏi nhé:",
+            "Được rồi, làm hợp đồng {type} ha. Mình cần hỏi bạn vài thông tin:",
+            "Hợp đồng {type} nhé! Để mình hỏi từng cái một cho dễ:",
         ],
         'field_ask': [
-            "{label} la gi?",
-            "Cho minh biet {label} nhe?",
+            "{label} là gì?",
+            "Cho mình biết {label} nhé?",
             "{label}?",
-            "Tiep theo, {label} la gi?",
+            "Tiếp theo, {label} là gì?",
         ],
         'field_confirm': [
-            "OK, ghi nhan roi!",
-            "Duoc roi!",
+            "OK, ghi nhận rồi!",
+            "Được rồi!",
             "Noted!",
-            "Da luu!",
+            "Đã lưu!",
         ],
         'contract_ready': [
-            "Xong roi! Ban co the noi 'xem hop dong' de xem truoc, hoac 'xuat pdf' de tai ve.",
-            "Da du thong tin roi! Noi 'xem hop dong' de xem truoc tren web nhe.",
-            "OK, hop dong da san sang. Ban muon xem truoc hay xuat pdf luon?",
+            "Xong rồi! Hợp đồng đã sẵn sàng.",
+            "Đã đủ thông tin! Hợp đồng của bạn đã sẵn sàng rồi.",
+            "OK, mình đã ghi nhận đầy đủ. Hợp đồng sẵn sàng rồi!",
         ],
         'missing_contract': [
-            "Chua co hop dong nao ne. Ban muon tao loai hop dong gi?",
-            "Hic, chua tao hop dong. Ban can tao hop dong gi? (thue nha, mua ban, dich vu, lao dong)",
-            "Chua co hop dong. Ban muon tao moi khong?",
+            "Chưa có hợp đồng nào nè. Bạn muốn tạo loại hợp đồng gì?",
+            "Chưa tạo hợp đồng. Bạn muốn tạo mới không?",
         ],
         'pdf_success': [
-            "Da xuat PDF xong roi! File o: {path}",
-            "OK, da luu PDF tai: {path}",
-            "Xong! Hop dong da duoc luu o: {path}",
+            "Đã xuất PDF xong rồi! Bạn có thể tải về ngay.",
+            "OK, hợp đồng PDF đã sẵn sàng tải về!",
+            "Xong! Hợp đồng đã được xuất PDF.",
         ],
         'preview_opened': [
-            "Da mo xem truoc trong trinh duyet roi nhe!",
-            "OK, check trinh duyet di!",
-            "Da mo trang xem truoc roi!",
+            "Đây là bản xem trước hợp đồng của bạn.",
+            "Bản xem trước hợp đồng đây!",
         ],
     }
 
-    # Contract type names in Vietnamese
-    CONTRACT_TYPE_NAMES = {
-        'rental': 'thue nha',
-        'sale_house': 'mua ban nha',
-        'sale_land': 'mua ban dat',
-        'sale': 'mua ban tai san',
-        'service': 'dich vu',
-        'employment': 'lao dong',
-    }
-
-    def __init__(self):
-        self.client, self.provider, self.model = get_llm_client()
-        self.research_service = ResearchService()
-        self.template_generator = DynamicTemplateGenerator()
+    def __init__(self, api_mode: bool = False):
+        self._research_service = None  # lazy-loaded (needs embedding model)
+        self._db = None  # lazy-loaded
+        self._available_types_cache = None  # cached from DB
         self.pdf_generator = GeneratorService()
         self.session: Optional[ChatSession] = None
+        self.api_mode = api_mode
 
-    def _call_llm(self, messages: list, temperature: float = 0.7, max_tokens: int = 1000) -> str:
-        """Call LLM with provider-specific handling"""
-        if not self.client:
-            return "Chua cau hinh API key. Vui long them ANTHROPIC_API_KEY hoac GROQ_API_KEY vao file .env"
+    @property
+    def db(self):
+        """Lazy-load database client."""
+        if self._db is None:
+            from legal_chatbot.db.supabase import get_database
+            self._db = get_database()
+        return self._db
+
+    @property
+    def research_service(self):
+        """Lazy-load ResearchService (avoids loading embedding model on startup)"""
+        if self._research_service is None:
+            self._research_service = ResearchService()
+        return self._research_service
+
+    def _get_available_contract_types(self) -> list[dict]:
+        """Get available contract types from DB (cached).
+
+        Returns list of {"type": "cho_thue_nha", "name": "Hợp đồng thuê nhà ở"}
+        Only includes templates with required_fields defined.
+        """
+        if self._available_types_cache is not None:
+            return self._available_types_cache
 
         try:
-            if self.provider == "anthropic":
-                # Extract system message
-                system_msg = ""
-                user_messages = []
-                for msg in messages:
-                    if msg['role'] == 'system':
-                        system_msg = msg['content']
-                    else:
-                        user_messages.append(msg)
-
-                response = self.client.messages.create(
-                    model=self.model,
-                    max_tokens=max_tokens,
-                    system=system_msg,
-                    messages=user_messages,
-                )
-                return response.content[0].text
-            else:
-                # Groq API
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-                return response.choices[0].message.content
+            templates = self.db.list_all_active_templates()
+            self._available_types_cache = [
+                {"type": t["contract_type"], "name": t["display_name"]}
+                for t in templates
+            ]
         except Exception as e:
-            return f"Loi khi goi LLM: {e}"
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to load templates from DB: {e}")
+            self._available_types_cache = []
+
+        return self._available_types_cache
+
+    def _resolve_contract_type(self, input_normalized: str) -> Optional[str]:
+        """Resolve normalized user input to a Vietnamese DB contract_type slug.
+
+        Uses INPUT_TO_TYPE (Vietnamese phrases) and SLUG_ALIAS (English slugs).
+        Returns None if no match found.
+        """
+        from legal_chatbot.utils.vietnamese import remove_diacritics as _rd
+
+        # Check English slug aliases first
+        for en_slug, vn_slug in SLUG_ALIAS.items():
+            if en_slug in input_normalized:
+                return vn_slug
+
+        # Check Vietnamese phrase mappings (INPUT_TO_TYPE uses Vietnamese with diacritics)
+        for phrase, slug in INPUT_TO_TYPE.items():
+            phrase_normalized = _rd(phrase.lower())
+            if phrase_normalized in input_normalized or input_normalized in phrase_normalized:
+                return slug
+
+        return None
+
+    def _load_template_from_db(self, contract_type_slug: str) -> DynamicTemplate:
+        """Load contract template from Supabase and build DynamicTemplate.
+
+        Args:
+            contract_type_slug: Vietnamese slug like 'cho_thue_nha'
+
+        Raises:
+            ValueError if template not found or has no required_fields
+        """
+        template_row = self.db.get_contract_template(contract_type_slug)
+        if not template_row:
+            raise ValueError(f"Template không tồn tại trong DB: {contract_type_slug}")
+
+        required_fields = template_row.get("required_fields")
+        if not required_fields:
+            raise ValueError(f"Template '{contract_type_slug}' chưa có định nghĩa trường (required_fields)")
+
+        # Build DynamicField list from JSONB
+        fields = [
+            DynamicField(
+                name=f["name"],
+                label=f["label"],
+                required=f.get("required", True),
+                field_type=f.get("field_type", "text"),
+                default_value=f.get("default_value"),
+                description=f.get("description"),
+            )
+            for f in required_fields.get("fields", [])
+        ]
+
+        return DynamicTemplate(
+            contract_type=contract_type_slug,
+            name=template_row["display_name"],
+            description=template_row.get("description") or "",
+            fields=fields,
+            legal_references=required_fields.get("legal_refs", []),
+            key_terms=required_fields.get("key_terms", []),
+            field_groups=required_fields.get("field_groups", []),
+            common_groups=required_fields.get("common_groups", []),
+            generated_from="Supabase contract_templates",
+        )
+
+    def _call_llm(self, messages: list, temperature: float = 0.7, max_tokens: int = 1000) -> str:
+        """Call LLM via shared Anthropic client."""
+        try:
+            return call_llm(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except Exception as e:
+            return f"Lỗi khi gọi LLM: {e}"
 
     def _random_response(self, key: str, **kwargs) -> str:
         """Get a random human-like response"""
@@ -238,24 +298,16 @@ Luu y: Day chi la tham khao, khong thay the tu van phap ly chuyen nghiep."""
         # Check if user is answering contract type question
         last_action = session.messages[-2].get('content', '') if len(session.messages) >= 2 else ''
         if 'loai hop dong' in remove_diacritics(last_action.lower()):
-            # User might be specifying contract type - check in order (more specific first)
-            type_map = [
-                ('thue nha', 'rental'), ('thue phong', 'rental'), ('thue', 'rental'), ('rental', 'rental'),
-                ('mua ban nha', 'sale_house'), ('mua nha', 'sale_house'), ('ban nha', 'sale_house'),
-                ('mua ban dat', 'sale_land'), ('mua dat', 'sale_land'), ('ban dat', 'sale_land'), ('chuyen nhuong dat', 'sale_land'),
-                ('mua ban', 'sale'), ('mua', 'sale'), ('ban', 'sale'), ('sale', 'sale'),
-                ('dich vu', 'service'), ('service', 'service'),
-                ('lao dong', 'employment'), ('employment', 'employment'),
-            ]
-            for key, value in type_map:
-                if key in input_normalized:
-                    response = await self._create_contract(value)
-                    session.messages.append({
-                        "role": "assistant",
-                        "content": response.message,
-                        "timestamp": datetime.now().isoformat()
-                    })
-                    return response
+            # Try to resolve contract type from user input using DB mappings
+            resolved_slug = self._resolve_contract_type(input_normalized)
+            if resolved_slug:
+                response = await self._create_contract(resolved_slug)
+                session.messages.append({
+                    "role": "assistant",
+                    "content": response.message,
+                    "timestamp": datetime.now().isoformat()
+                })
+                return response
 
         # Check if we're in contract creation mode (collecting fields)
         if session.mode == 'contract_creation' and session.current_draft:
@@ -265,12 +317,12 @@ Luu y: Day chi la tham khao, khong thay the tu van phap ly chuyen nghiep."""
                     session.mode = 'normal'
                     session.current_draft = None
                     response = InteractiveChatResponse(
-                        message="OK, da huy. Ban can gi khac khong?",
+                        message="OK, đã hủy. Bạn cần gì khác không?",
                         action_taken="contract_cancelled"
                     )
                 # Check for preview/export commands even during collection
                 elif any(kw in input_normalized for kw in ['xem truoc', 'preview', 'xem hop dong']):
-                    response = self._preview_contract()
+                    response = self._preview_contract(open_browser=not self.api_mode)
                 elif any(kw in input_normalized for kw in ['xuat pdf', 'export pdf', 'luu pdf']):
                     response = self._export_pdf()
                 else:
@@ -337,18 +389,52 @@ Luu y: Day chi la tham khao, khong thay the tu van phap ly chuyen nghiep."""
                     action_taken="field_collected"
                 )
             else:
-                # All required fields collected
+                # All required fields collected — auto-generate PDF
                 draft.state = 'ready'
-                session.mode = 'normal'  # Back to normal mode
-                return InteractiveChatResponse(
-                    message=self._random_response('contract_ready'),
-                    contract_draft=draft,
-                    action_taken="contract_ready"
-                )
+                session.mode = 'normal'
+                return self._finalize_contract(draft)
         else:
             # Shouldn't reach here, but just in case
             draft.state = 'ready'
             session.mode = 'normal'
+            return self._finalize_contract(draft)
+
+    def _finalize_contract(self, draft: ContractDraft) -> InteractiveChatResponse:
+        """Auto-generate PDF when all fields collected and return Supabase download URL.
+
+        Uses temp files for PDF generation, uploads to Supabase Storage,
+        then cleans up local files.
+        """
+        try:
+            json_filename, json_bytes = self._build_contract_json(draft)
+            pdf_filename = json_filename.replace('.json', '.pdf')
+
+            # Write temp JSON → generate PDF → read PDF bytes → clean up
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_json = Path(tmp_dir) / json_filename
+                tmp_pdf = Path(tmp_dir) / pdf_filename
+
+                tmp_json.write_bytes(json_bytes)
+
+                pdf_gen = UniversalPDFGenerator()
+                pdf_gen.generate(contract_path=str(tmp_json), output_path=str(tmp_pdf))
+
+                pdf_bytes = tmp_pdf.read_bytes()
+
+            # Upload PDF to Supabase Storage
+            pdf_url = self._upload_to_supabase_storage(pdf_filename, pdf_bytes, "application/pdf")
+
+            draft.state = 'exported'
+
+            return InteractiveChatResponse(
+                message=self._random_response('contract_ready'),
+                contract_draft=draft,
+                pdf_path=pdf_url,
+                action_taken="contract_ready"
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Auto PDF generation failed: {e}")
             return InteractiveChatResponse(
                 message=self._random_response('contract_ready'),
                 contract_draft=draft,
@@ -431,21 +517,20 @@ Luu y: Day chi la tham khao, khong thay the tu van phap ly chuyen nghiep."""
             return await self._create_contract(command.args['type'])
 
         elif command.command == 'ask_contract_type':
-            # User wants to create contract but didn't specify type
+            # User wants to create contract but didn't specify type — build list from DB
+            available = self._get_available_contract_types()
+            if available:
+                type_list = "\n".join(f"• {t['name']}" for t in available)
+                msg = f"OK! Bạn muốn tạo loại hợp đồng nào?\n\n{type_list}\n\nNói tên loại hợp đồng nhé!"
+            else:
+                msg = "Hiện tại chưa có loại hợp đồng nào trong hệ thống. Vui lòng chạy seed-templates trước."
             return InteractiveChatResponse(
-                message="OK! Ban muon tao loai hop dong nao?\n\n"
-                        "• thue nha - Hop dong cho thue nha/phong\n"
-                        "• mua ban nha - Hop dong mua ban nha o\n"
-                        "• mua ban dat - Hop dong chuyen nhuong quyen su dung dat\n"
-                        "• mua ban - Hop dong mua ban tai san khac\n"
-                        "• dich vu - Hop dong cung cap dich vu\n"
-                        "• lao dong - Hop dong lao dong\n\n"
-                        "Noi ten loai hop dong nhe (vd: 'thue nha', 'mua ban dat')",
+                message=msg,
                 action_taken="ask_contract_type"
             )
 
         elif command.command == 'preview':
-            return self._preview_contract()
+            return self._preview_contract(open_browser=not self.api_mode)
 
         elif command.command == 'export_pdf':
             return self._export_pdf(command.args.get('filename'))
@@ -460,9 +545,64 @@ Luu y: Day chi la tham khao, khong thay the tu van phap ly chuyen nghiep."""
             return await self._research_topic(command.args['topic'])
 
         return InteractiveChatResponse(
-            message="Hmm, khong hieu lenh nay lam. Ban thu lai nhe!",
+            message="Hmm, không hiểu lệnh này lắm. Bạn thử lại nhé!",
             action_taken="unknown_command"
         )
+
+    def _detect_category_from_query(self, query: str) -> Optional[str]:
+        """Detect legal category from query using keyword matching."""
+        query_lower = query.lower()
+        best_match = None
+        best_score = 0
+        for category, keywords in CATEGORY_KEYWORDS.items():
+            score = sum(1 for kw in keywords if kw in query_lower)
+            if score > best_score:
+                best_score = score
+                best_match = category
+        return best_match if best_score > 0 else None
+
+    def _check_data_for_query(self, query: str) -> Optional[str]:
+        """Check if DB has data for the detected category. Returns friendly message if no data, None if data exists."""
+        settings = get_settings()
+        if settings.db_mode != "supabase":
+            return None
+
+        category = self._detect_category_from_query(query)
+        if not category:
+            return None  # Can't determine category, let LLM handle it
+
+        try:
+            from legal_chatbot.db.supabase import get_database
+            db = get_database()
+            all_cats = db.get_all_categories_with_stats()
+
+            available = [
+                {
+                    "name": c["name"],
+                    "display_name": c["display_name"],
+                    "article_count": c.get("article_count", 0),
+                }
+                for c in all_cats
+                if c.get("article_count", 0) > 0
+            ]
+
+            cat_stats = next((c for c in all_cats if c["name"] == category), None)
+            if cat_stats and cat_stats.get("article_count", 0) > 0:
+                return None  # Has data, proceed normally
+
+            # No data for this category — build friendly message
+            category_display = category.replace("_", " ")
+            msg = f"Hiện tại mình chưa có dữ liệu về lĩnh vực **{category_display}** nên không thể tư vấn chính xác được."
+            if available:
+                cat_list = ", ".join(
+                    f"{c['display_name']} ({c['article_count']} điều luật)"
+                    for c in available
+                )
+                msg += f"\n\nMình có thể giúp bạn về: {cat_list}."
+                msg += "\n\nBạn muốn hỏi về lĩnh vực nào?"
+            return msg
+        except Exception:
+            return None  # On error, let LLM handle it
 
     async def _handle_natural_input(self, user_input: str) -> InteractiveChatResponse:
         """Handle natural language input - flexible for any legal topic"""
@@ -482,6 +622,14 @@ Luu y: Day chi la tham khao, khong thay the tu van phap ly chuyen nghiep."""
             contract_type = await self._detect_contract_type_with_llm(user_input)
             if contract_type:
                 return await self._create_contract(contract_type)
+
+        # Check if DB has data for the topic before calling LLM
+        no_data_msg = self._check_data_for_query(user_input)
+        if no_data_msg:
+            return InteractiveChatResponse(
+                message=no_data_msg,
+                action_taken="no_data"
+            )
 
         # Build context for LLM response
         context = await self._build_context_for_query(user_input, session)
@@ -514,37 +662,51 @@ Luu y: Day chi la tham khao, khong thay the tu van phap ly chuyen nghiep."""
         return result
 
     async def _detect_contract_type_with_llm(self, user_input: str) -> Optional[str]:
-        """Use LLM to detect contract type from user input"""
-        system_prompt = """Ban la tro ly phan loai hop dong. Tu yeu cau cua nguoi dung, hay xac dinh loai hop dong can tao.
+        """Use LLM to detect contract type from user input.
 
-Cac loai hop dong ho tro:
-- rental: Thue nha, thue phong, cho thue
-- sale_house: Mua ban nha o, mua ban can ho
-- sale_land: Mua ban dat, chuyen nhuong quyen su dung dat
-- sale: Mua ban tai san khac (xe, do vat...)
-- service: Dich vu, cung cap dich vu
-- employment: Lao dong, tuyen dung, nhan vien
+        Returns Vietnamese DB slug (e.g. 'cho_thue_nha') or None.
+        """
+        # Build dynamic prompt from DB templates
+        available = self._get_available_contract_types()
+        if not available:
+            return None
 
-Tra ve CHI MOT tu: rental, sale_house, sale_land, sale, service, employment
-Neu khong xac dinh duoc, tra ve: none"""
+        type_lines = "\n".join(
+            f"- {t['type']}: {t['name']}"
+            for t in available
+        )
+        valid_slugs = [t['type'] for t in available]
+
+        system_prompt = f"""Bạn là trợ lý phân loại hợp đồng. Từ yêu cầu của người dùng, hãy xác định loại hợp đồng cần tạo.
+
+Các loại hợp đồng hỗ trợ:
+{type_lines}
+
+Trả về CHỈ MỘT slug: {', '.join(valid_slugs)}
+Nếu không xác định được, trả về: none"""
 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_input}
         ]
 
-        result = self._call_llm(messages, temperature=0.1, max_tokens=20)
+        result = self._call_llm(messages, temperature=0.1, max_tokens=30)
         result = result.strip().lower()
 
-        valid_types = ['rental', 'sale_house', 'sale_land', 'sale', 'service', 'employment']
-        if result in valid_types:
+        if result in valid_slugs:
             return result
+
+        # Try resolving via SLUG_ALIAS (in case LLM returns English slug)
+        if result in SLUG_ALIAS:
+            return SLUG_ALIAS[result]
 
         return None
 
     async def _build_context_for_query(self, user_input: str, session: ChatSession) -> str:
-        """Build relevant context for the query - research if needed"""
-        # Normalize for comparison
+        """Build relevant context using keyword-based DB search (no embedding model needed).
+
+        Similar to `db-articles` CLI command: fast SQL ilike search on articles table.
+        """
         input_normalized = remove_diacritics(user_input.lower())
 
         # Check if this is a legal question that needs research
@@ -555,43 +717,101 @@ Neu khong xac dinh duoc, tra ve: none"""
         ]
 
         is_legal_question = any(kw in input_normalized for kw in legal_question_keywords)
+        if not is_legal_question:
+            return ""
 
-        if is_legal_question:
-            try:
-                research_result = await self.research_service.research(user_input, max_sources=2)
-                if research_result.analyzed_content:
-                    return research_result.analyzed_content[:1500]
-            except Exception as e:
-                print(f"Research error: {e}")
+        try:
+            return self._search_db_articles(user_input)
+        except Exception as e:
+            print(f"DB search error: {e}")
+            return ""
 
-        return ""
+    def _search_db_articles(self, query: str, limit: int = 10) -> str:
+        """Keyword-based search on articles table — no embedding model needed.
+
+        Replicates the db-articles CLI logic: SQL ilike on content and title.
+        """
+        settings = get_settings()
+        if settings.db_mode != "supabase":
+            return ""
+
+        from legal_chatbot.db.supabase import get_database
+
+        db = get_database()
+        client = db._read()
+
+        # Extract meaningful keywords from the query (skip common words)
+        stop_words = {
+            'la', 'gi', 'cua', 'va', 'trong', 'cho', 'nhu', 'the', 'nao',
+            'co', 'khong', 'duoc', 'phai', 'can', 'bao', 'nhieu', 'mot',
+            'cac', 'nhung', 'nay', 'do', 'khi', 'neu', 'thi', 'se', 'da',
+            'dang', 'tu', 'den', 'voi', 'tai', 've', 'theo', 'bang',
+        }
+        words = remove_diacritics(query.lower()).split()
+        keywords = [w for w in words if len(w) > 2 and w not in stop_words]
+
+        if not keywords:
+            return ""
+
+        # Search using SQL ilike (same as db-articles CLI)
+        seen_ids = set()
+        results = []
+
+        for kw in keywords[:5]:  # max 5 keywords
+            result = (
+                client.table("articles")
+                .select("article_number, title, content, legal_documents(title, document_number)")
+                .or_(f"content.ilike.%{kw}%,title.ilike.%{kw}%")
+                .order("article_number")
+                .limit(limit)
+                .execute()
+            )
+
+            for a in result.data or []:
+                doc_info = a.get("legal_documents") or {}
+                art_key = (a.get("article_number"), doc_info.get("title", ""))
+                if art_key in seen_ids:
+                    continue
+                seen_ids.add(art_key)
+                content = a.get("content", "")[:300]
+                results.append(
+                    f"Dieu {a.get('article_number', '?')} ({doc_info.get('title', '')}): {content}"
+                )
+
+            if len(results) >= limit:
+                break
+
+        if not results:
+            return ""
+
+        return "\n\n".join(results[:limit])
 
     def _get_flexible_system_prompt(self, session: ChatSession) -> str:
         """Get flexible system prompt that handles any legal topic"""
-        base_prompt = """Ban la tro ly phap ly Viet Nam thong minh. Ban co the:
+        base_prompt = """Bạn là trợ lý pháp lý Việt Nam thông minh. Bạn có thể:
 
-1. TRA LOI bat ky cau hoi phap ly nao (luat dan su, hinh su, lao dong, dat dai, kinh doanh, v.v.)
-2. TAO hop dong khi nguoi dung yeu cau (noi "tao hop dong [loai]")
-3. CHINH SUA hop dong theo yeu cau
-4. XUAT hop dong ra PDF
+1. TRẢ LỜI bất kỳ câu hỏi pháp lý nào (luật dân sự, hình sự, lao động, đất đai, kinh doanh, v.v.)
+2. TẠO hợp đồng khi người dùng yêu cầu (nói "tạo hợp đồng [loại]")
+3. CHỈNH SỬA hợp đồng theo yêu cầu
+4. XUẤT hợp đồng ra PDF
 
-Khi tra loi cau hoi phap ly:
-- Cung cap thong tin chinh xac dua tren phap luat Viet Nam
-- Trich dan dieu luat cu the neu co
-- Giai thich ro rang, de hieu
+Khi trả lời câu hỏi pháp lý:
+- Cung cấp thông tin chính xác dựa trên pháp luật Việt Nam
+- Trích dẫn điều luật cụ thể nếu có
+- Giải thích rõ ràng, dễ hiểu
 
-Khi tao hop dong:
-- Xac dinh loai hop dong phu hop
-- Huong dan nguoi dung cung cap thong tin can thiet
-- Cho phep xem truoc va xuat PDF
+Khi tạo hợp đồng:
+- Xác định loại hợp đồng phù hợp
+- Hướng dẫn người dùng cung cấp thông tin cần thiết
+- Cho phép xem trước và xuất PDF
 
-Cac lenh:
-- "tao hop dong [loai]" - Tao hop dong moi
-- "xem hop dong" / "preview" - Xem truoc trong trinh duyet
-- "xuat pdf" - Xuat file PDF
-- "sua [truong] = [gia tri]" - Cap nhat thong tin
+Các lệnh:
+- "tạo hợp đồng [loại]" - Tạo hợp đồng mới
+- "xem hợp đồng" / "preview" - Xem trước trong trình duyệt
+- "xuất pdf" - Xuất file PDF
+- "sửa [trường] = [giá trị]" - Cập nhật thông tin
 
-Luu y: Day chi la thong tin tham khao, khong thay the tu van phap ly chuyen nghiep."""
+Lưu ý: Đây chỉ là thông tin tham khảo, không thay thế tư vấn pháp lý chuyên nghiệp."""
 
         if session.current_draft:
             draft = session.current_draft
@@ -601,10 +821,10 @@ Luu y: Day chi la thong tin tham khao, khong thay the tu van phap ly chuyen nghi
             base_prompt += f"""
 
 ---
-HOP DONG DANG SOAN: {draft.template.name}
-Da dien: {len(draft.field_values)}/{len(draft.template.fields)} truong
-{f'Thong tin: {chr(10)}{filled_fields}' if filled_fields else ''}
-{f'Chua dien: {", ".join(unfilled)}' if unfilled else 'Da day du thong tin!'}
+HỢP ĐỒNG ĐANG SOẠN: {draft.template.name}
+Đã điền: {len(draft.field_values)}/{len(draft.template.fields)} trường
+{f'Thông tin: {chr(10)}{filled_fields}' if filled_fields else ''}
+{f'Chưa điền: {", ".join(unfilled)}' if unfilled else 'Đã đầy đủ thông tin!'}
 ---"""
 
         return base_prompt
@@ -639,11 +859,16 @@ Da dien: {len(draft.field_values)}/{len(draft.template.fields)} truong
         """Auto-create a contract draft based on detected type"""
         session = self.get_session()
 
+        # Resolve to Vietnamese DB slug
+        resolved = self._resolve_contract_type(
+            remove_diacritics(contract_type.lower().strip())
+        ) or contract_type
+
         try:
-            template = self.template_generator.generate_template(contract_type)
+            template = self._load_template_from_db(resolved)
             draft = ContractDraft(
                 id=str(uuid4()),
-                contract_type=contract_type,
+                contract_type=resolved,
                 template=template,
                 field_values={},
                 legal_basis=template.legal_references
@@ -657,28 +882,27 @@ Da dien: {len(draft.field_values)}/{len(draft.template.fields)} truong
         field_names = [f.name for f in draft.template.fields]
         field_labels = {f.name: f.label for f in draft.template.fields}
 
-        system_prompt = """Ban la tro ly trich xuat thong tin. Tu van ban nguoi dung cung cap,
-hay trich xuat cac truong thong tin hop dong.
+        system_prompt = """Bạn là trợ lý trích xuất thông tin. Từ văn bản người dùng cung cấp,
+hãy trích xuất các trường thông tin hợp đồng.
 
-Tra ve JSON voi format:
-{"field_name": "gia tri", ...}
+Trả về JSON với format:
+{"field_name": "giá trị", ...}
 
-Chi tra ve cac truong co thong tin ro rang trong van ban.
-Neu khong tim thay, tra ve {}"""
+Chỉ trả về các trường có thông tin rõ ràng trong văn bản.
+Nếu không tìm thấy, trả về {}"""
 
         fields_info = "\n".join([f"- {name}: {label}" for name, label in field_labels.items()])
 
-        user_prompt = f"""CAC TRUONG CAN TRICH XUAT:
+        user_prompt = f"""CÁC TRƯỜNG CẦN TRÍCH XUẤT:
 {fields_info}
 
-VAN BAN:
+VĂN BẢN:
 {text}
 
-Hay trich xuat thong tin va tra ve JSON."""
+Hãy trích xuất thông tin và trả về JSON."""
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            extracted = call_llm_json(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -687,16 +911,9 @@ Hay trich xuat thong tin va tra ve JSON."""
                 max_tokens=500,
             )
 
-            response_text = response.choices[0].message.content
+            if not isinstance(extracted, dict):
+                return {}
 
-            # Extract JSON from response
-            import json
-            if '```' in response_text:
-                json_text = response_text.split('```')[1].replace('json', '').strip()
-            else:
-                json_text = response_text.strip()
-
-            extracted = json.loads(json_text)
             # Filter to only valid fields
             return {k: v for k, v in extracted.items() if k in field_names and v}
 
@@ -720,49 +937,43 @@ Hay trich xuat thong tin va tra ve JSON."""
 
             base_prompt += f"""
 
-THONG TIN HOP DONG HIEN TAI:
-Loai: {draft.template.name}
-Cac truong da dien:
-{filled_fields if filled_fields else '(chua co)'}
+THÔNG TIN HỢP ĐỒNG HIỆN TẠI:
+Loại: {draft.template.name}
+Các trường đã điền:
+{filled_fields if filled_fields else '(chưa có)'}
 
-Cac truong can dien:
-{', '.join(unfilled_fields) if unfilled_fields else '(da day du)'}
+Các trường cần điền:
+{', '.join(unfilled_fields) if unfilled_fields else '(đã đầy đủ)'}
 
-Khi nguoi dung cung cap thong tin, hay xac nhan va ghi nhan.
-Khi nguoi dung muon xem hop dong, hay huong dan ho noi 'xem hop dong' de mo trong trinh duyet."""
+Khi người dùng cung cấp thông tin, hãy xác nhận và ghi nhận.
+Khi người dùng muốn xem hợp đồng, hãy hướng dẫn họ nói 'xem hợp đồng' để mở trong trình duyệt."""
 
         return base_prompt
 
     async def _create_contract(self, contract_type: str) -> InteractiveChatResponse:
-        """Create a new contract draft and start step-by-step collection"""
+        """Create a new contract draft and start step-by-step collection.
+
+        Args:
+            contract_type: Vietnamese slug (e.g. 'cho_thue_nha') or user input text.
+        """
         session = self.get_session()
 
-        # Normalize contract type - check in order (more specific first)
-        type_map = {
-            # Thue
-            'thue': 'rental', 'rental': 'rental', 'thue nha': 'rental', 'thue phong': 'rental',
-            # Mua ban nha
-            'sale_house': 'sale_house', 'mua ban nha': 'sale_house', 'mua nha': 'sale_house', 'ban nha': 'sale_house',
-            # Mua ban dat
-            'sale_land': 'sale_land', 'mua ban dat': 'sale_land', 'mua dat': 'sale_land', 'ban dat': 'sale_land',
-            'chuyen nhuong dat': 'sale_land',
-            # Mua ban chung
-            'mua': 'sale', 'ban': 'sale', 'sale': 'sale', 'mua ban': 'sale',
-            # Dich vu
-            'dich vu': 'service', 'service': 'service',
-            # Lao dong
-            'lao dong': 'employment', 'employment': 'employment', 'viec': 'employment'
-        }
-        normalized_type = type_map.get(contract_type.lower(), contract_type.lower())
+        # Resolve to Vietnamese DB slug
+        resolved_slug = self._resolve_contract_type(
+            remove_diacritics(contract_type.lower().strip())
+        )
+        if not resolved_slug:
+            # Try direct slug (already a valid DB slug)
+            resolved_slug = contract_type.lower().strip().replace(" ", "_")
 
         try:
-            # Generate template (skip research to be faster)
-            template = self.template_generator.generate_template(normalized_type, None)
+            # Load template from Supabase (no hardcoded fallback)
+            template = self._load_template_from_db(resolved_slug)
 
             # Create draft with collecting state
             draft = ContractDraft(
                 id=str(uuid4()),
-                contract_type=normalized_type,
+                contract_type=resolved_slug,
                 template=template,
                 field_values={},
                 legal_basis=template.legal_references,
@@ -772,8 +983,8 @@ Khi nguoi dung muon xem hop dong, hay huong dan ho noi 'xem hop dong' de mo tron
             session.current_draft = draft
             session.mode = 'contract_creation'
 
-            # Get Vietnamese type name
-            type_name = self.CONTRACT_TYPE_NAMES.get(normalized_type, normalized_type)
+            # Get Vietnamese type name from template (DB display_name)
+            type_name = template.name
 
             # Get first required field
             required_fields = [f for f in template.fields if f.required]
@@ -795,12 +1006,19 @@ Khi nguoi dung muon xem hop dong, hay huong dan ho noi 'xem hop dong' de mo tron
             )
 
         except ValueError as e:
+            # Build dynamic error message from DB
+            available = self._get_available_contract_types()
+            if available:
+                type_list = ", ".join(t["name"] for t in available)
+                msg = f"Hmm, chưa hỗ trợ loại hợp đồng này. Hiện tại mình có: {type_list} nhé!"
+            else:
+                msg = "Hiện tại chưa có loại hợp đồng nào trong hệ thống."
             return InteractiveChatResponse(
-                message=f"Hmm, chua ho tro loai hop dong nay. Thu: thue nha, mua ban, dich vu, hoac lao dong nhe!",
+                message=msg,
                 action_taken="error"
             )
 
-    def _preview_contract(self) -> InteractiveChatResponse:
+    def _preview_contract(self, open_browser: bool = True) -> InteractiveChatResponse:
         """Generate HTML preview of current contract"""
         session = self.get_session()
 
@@ -810,19 +1028,23 @@ Khi nguoi dung muon xem hop dong, hay huong dan ho noi 'xem hop dong' de mo tron
                 action_taken="no_contract"
             )
 
-        # Now we have a draft - continue with preview
         draft = session.current_draft
+
+        # Generate articles if not already done (for richer preview)
+        if not draft.articles and draft.state == 'ready':
+            draft.articles = self._generate_articles_with_llm(draft)
+
         html = self._generate_html_preview(draft)
 
-        # Save to temp file and open in browser
-        temp_dir = Path(tempfile.gettempdir())
-        html_path = temp_dir / f"contract_preview_{draft.id[:8]}.html"
+        if open_browser:
+            # Save to temp file and open in browser (CLI mode)
+            temp_dir = Path(tempfile.gettempdir())
+            html_path = temp_dir / f"contract_preview_{draft.id[:8]}.html"
 
-        with open(html_path, 'w', encoding='utf-8') as f:
-            f.write(html)
+            with open(html_path, 'w', encoding='utf-8') as f:
+                f.write(html)
 
-        # Open in browser
-        webbrowser.open(f'file://{html_path}')
+            webbrowser.open(f'file://{html_path}')
 
         return InteractiveChatResponse(
             message=self._random_response('preview_opened'),
@@ -860,7 +1082,7 @@ Khi nguoi dung muon xem hop dong, hay huong dan ho noi 'xem hop dong' de mo tron
                         <span class="document-name">({article.document_name})</span>
                     </div>
                     <div class="article-summary">
-                        <em>Tom tat: {article.summary}</em>
+                        <em>Tóm tắt: {article.summary}</em>
                     </div>
                     <div class="article-content">
                         {content_formatted}
@@ -878,7 +1100,7 @@ Khi nguoi dung muon xem hop dong, hay huong dan ho noi 'xem hop dong' de mo tron
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <title>Xem truoc: {template.name}</title>
+    <title>Xem trước: {template.name}</title>
     <style>
         body {{ font-family: 'Times New Roman', serif; max-width: 900px; margin: 0 auto; padding: 20px; line-height: 1.6; }}
         .header {{ text-align: center; margin-bottom: 30px; }}
@@ -979,8 +1201,8 @@ Khi nguoi dung muon xem hop dong, hay huong dan ho noi 'xem hop dong' de mo tron
 </head>
 <body>
     <div class="header">
-        <div>CONG HOA XA HOI CHU NGHIA VIET NAM</div>
-        <div><strong>Doc lap - Tu do - Hanh phuc</strong></div>
+        <div>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</div>
+        <div><strong>Độc lập - Tự do - Hạnh phúc</strong></div>
         <div>---oOo---</div>
     </div>
 
@@ -992,42 +1214,45 @@ Khi nguoi dung muon xem hop dong, hay huong dan ho noi 'xem hop dong' de mo tron
 
     <!-- DETAILED LEGAL BASIS SECTION -->
     <div class="legal-basis-section">
-        <h3>CO SO PHAP LY</h3>
-        <p><em>Hop dong nay duoc lap dua tren cac quy dinh phap luat sau:</em></p>
+        <h3>CƠ SỞ PHÁP LÝ</h3>
+        <p><em>Hợp đồng này được lập dựa trên các quy định pháp luật sau:</em></p>
         {legal_articles_html}
     </div>
 
     <!-- CONTRACT INFORMATION -->
     <div class="contract-info">
-        <h3>THONG TIN HOP DONG</h3>
+        <h3>THÔNG TIN HỢP ĐỒNG</h3>
         <table>
             {field_rows}
         </table>
     </div>
 
+    <!-- GENERATED CONTRACT ARTICLES -->
+    {self._build_articles_html(draft)}
+
     <!-- KEY TERMS -->
     <div class="key-terms">
-        <h4>CAC DIEU KHOAN QUAN TRONG THEO QUY DINH PHAP LUAT:</h4>
+        <h4>CÁC ĐIỀU KHOẢN QUAN TRỌNG THEO QUY ĐỊNH PHÁP LUẬT:</h4>
         {key_terms}
     </div>
 
     <!-- SIGNATURES -->
     <div class="signature">
         <div class="signature-box">
-            <strong>BEN A</strong><br>
-            (Ky va ghi ro ho ten)<br><br><br><br>
+            <strong>BÊN A</strong><br>
+            (Ký và ghi rõ họ tên)<br><br><br><br>
         </div>
         <div class="signature-box">
-            <strong>BEN B</strong><br>
-            (Ky va ghi ro ho ten)<br><br><br><br>
+            <strong>BÊN B</strong><br>
+            (Ký và ghi rõ họ tên)<br><br><br><br>
         </div>
     </div>
 
     <div class="disclaimer">
-        <strong>Luu y:</strong> Day chi la ban xem truoc mang tinh chat tham khao.
-        Cac dieu khoan phap ly duoc trich dan tu cac van ban phap luat hien hanh.
-        Vui long kiem tra ky thong tin truoc khi xuat PDF chinh thuc.
-        <strong>Khong thay the tu van phap ly chuyen nghiep.</strong>
+        <strong>Lưu ý:</strong> Đây chỉ là bản xem trước mang tính chất tham khảo.
+        Các điều khoản pháp lý được trích dẫn từ các văn bản pháp luật hiện hành.
+        Vui lòng kiểm tra kỹ thông tin trước khi xuất PDF chính thức.
+        <strong>Không thay thế tư vấn pháp lý chuyên nghiệp.</strong>
     </div>
 
     <script>
@@ -1039,8 +1264,221 @@ Khi nguoi dung muon xem hop dong, hay huong dan ho noi 'xem hop dong' de mo tron
 
         return html
 
+    def _build_articles_html(self, draft: ContractDraft) -> str:
+        """Build HTML for generated contract articles (ĐIỀU 1-9)."""
+        if not draft.articles:
+            return ""
+
+        html = '<div style="margin: 25px 0;">\n'
+        html += '<h3 style="color: #1a5f7a; border-bottom: 2px solid #1a5f7a; padding-bottom: 10px;">NỘI DUNG HỢP ĐỒNG</h3>\n'
+
+        for article in draft.articles:
+            title = article.get('title', '')
+            content_items = article.get('content', [])
+            html += f'<div style="margin: 15px 0;">\n'
+            html += f'<h4 style="color: #1a5f7a; margin-bottom: 8px;">{title}</h4>\n'
+            for item in content_items:
+                html += f'<p style="margin: 4px 0 4px 20px; text-align: justify;">{item}</p>\n'
+            html += '</div>\n'
+
+        html += '</div>\n'
+        return html
+
+    def _group_fields(self, draft: ContractDraft) -> dict:
+        """Group flat field_values into sections using field_groups from DB template.
+
+        Reads field_groups and common_groups from DynamicTemplate (loaded from Supabase).
+        """
+        groups = {}
+        field_labels = {f.name: f.label for f in draft.template.fields}
+        assigned = set()
+
+        # Type-specific groups from template (loaded from DB required_fields.field_groups)
+        for group_def in draft.template.field_groups:
+            prefix = group_def.get("prefix", "")
+            section_key = group_def.get("key", prefix.rstrip("_"))
+            section_label = group_def.get("label", section_key.upper())
+
+            for field_name, value in draft.field_values.items():
+                if field_name.startswith(prefix) and field_name not in assigned:
+                    if section_key not in groups:
+                        groups[section_key] = {'_label': section_label}
+                    short_key = field_name[len(prefix):] if field_name.startswith(prefix) else field_name
+                    groups[section_key][short_key] = {
+                        'value': value,
+                        'label': field_labels.get(field_name, field_name)
+                    }
+                    assigned.add(field_name)
+
+        # Common groups from template (loaded from DB required_fields.common_groups)
+        for group_def in draft.template.common_groups:
+            prefix = group_def.get("prefix", "")
+            section_key = group_def.get("key", prefix.rstrip("_"))
+            section_label = group_def.get("label", section_key.upper())
+
+            for field_name, value in draft.field_values.items():
+                if field_name.startswith(prefix) and field_name not in assigned:
+                    if section_key not in groups:
+                        groups[section_key] = {'_label': section_label}
+                    groups[section_key][field_name] = {
+                        'value': value,
+                        'label': field_labels.get(field_name, field_name)
+                    }
+                    assigned.add(field_name)
+
+        # Remaining unassigned fields → "THÔNG TIN KHÁC"
+        for field_name, value in draft.field_values.items():
+            if field_name not in assigned:
+                if 'thong_tin_khac' not in groups:
+                    groups['thong_tin_khac'] = {'_label': 'THÔNG TIN KHÁC'}
+                groups['thong_tin_khac'][field_name] = {
+                    'value': value,
+                    'label': field_labels.get(field_name, field_name)
+                }
+
+        return groups
+
+    def _generate_articles_with_llm(self, draft: ContractDraft) -> list[dict]:
+        """Generate contract articles (ĐIỀU 1-9) using LLM based on template and field values."""
+
+        contract_type_vn = draft.template.name if draft.template else 'Hợp đồng'
+        legal_refs = ', '.join(draft.legal_basis) if draft.legal_basis else 'Bộ luật Dân sự 2015'
+
+        # Build field summary for the LLM
+        field_summary = []
+        for field in draft.template.fields:
+            val = draft.field_values.get(field.name)
+            if val:
+                field_summary.append(f"- {field.label}: {val}")
+        fields_text = '\n'.join(field_summary)
+
+        # Build legal articles context from template
+        legal_context = ""
+        if draft.template.legal_articles:
+            for art in draft.template.legal_articles:
+                legal_context += f"\n- Điều {art.article_number} ({art.document_name}): {art.content[:200]}"
+
+        system_prompt = """Bạn là chuyên gia soạn thảo hợp đồng pháp lý Việt Nam. Nhiệm vụ: tạo các ĐIỀU khoản cho hợp đồng.
+
+QUY TẮC:
+- Tạo đúng 9 ĐIỀU (articles)
+- Mỗi ĐIỀU có title (ví dụ: "ĐIỀU 1: ĐỐI TƯỢNG CỦA HỢP ĐỒNG") và content (mảng các khoản)
+- Nội dung phải cụ thể, chi tiết, trích dẫn luật khi cần
+- Sử dụng thông tin các bên và tài sản đã cung cấp
+- Trả về JSON array, KHÔNG có text nào khác
+
+FORMAT:
+[
+  {"title": "ĐIỀU 1: ĐỐI TƯỢNG CỦA HỢP ĐỒNG", "content": ["1.1. ...", "1.2. ..."]},
+  {"title": "ĐIỀU 2: GIÁ VÀ PHƯƠNG THỨC THANH TOÁN", "content": ["2.1. ...", "2.2. ..."]},
+  ...
+]
+
+CÁC ĐIỀU BẮT BUỘC:
+1. Đối tượng hợp đồng
+2. Giá cả / phương thức thanh toán
+3. Thời hạn
+4. Quyền và nghĩa vụ Bên A
+5. Quyền và nghĩa vụ Bên B
+6. Cam kết của các bên
+7. Trách nhiệm do vi phạm
+8. Giải quyết tranh chấp
+9. Điều khoản chung"""
+
+        user_prompt = f"""Tạo 9 ĐIỀU cho {contract_type_vn}.
+
+CĂN CỨ PHÁP LÝ: {legal_refs}
+{f"ĐIỀU LUẬT THAM KHẢO:{legal_context}" if legal_context else ""}
+
+THÔNG TIN HỢP ĐỒNG:
+{fields_text}
+
+Trả về JSON array (9 articles). CHỈ JSON, không có text giải thích."""
+
+        try:
+            result = self._call_llm(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=4000
+            )
+
+            # Parse JSON from response
+            result = result.strip()
+            if result.startswith('```'):
+                result = result.split('```')[1]
+                if result.startswith('json'):
+                    result = result[4:]
+                result = result.strip()
+            articles = json.loads(result)
+            if isinstance(articles, list) and len(articles) > 0:
+                return articles
+        except Exception as e:
+            print(f"Error generating articles: {e}")
+
+        return []
+
+    def _upload_to_supabase_storage(self, filename: str, content: bytes, content_type: str) -> Optional[str]:
+        """Upload file to Supabase Storage, return signed URL or None on failure."""
+        settings = get_settings()
+        if settings.db_mode != "supabase":
+            return None
+        try:
+            from legal_chatbot.db.supabase import get_database
+            db = get_database()
+            return db.upload_contract_file(filename, content, content_type)
+        except Exception as e:
+            print(f"Supabase Storage upload failed: {e}")
+            return None
+
+    def _build_contract_json(self, draft: ContractDraft) -> tuple[str, bytes]:
+        """Build complete contract JSON, upload to Supabase, return (filename, bytes).
+
+        Uses temp file for PDF generation, does NOT persist locally.
+        """
+        # Generate articles if not already done
+        if not draft.articles:
+            draft.articles = self._generate_articles_with_llm(draft)
+
+        contract_type_vn = draft.template.name if draft.template else 'Hợp đồng'
+
+        # Build legal_references in proper format
+        legal_references = []
+        if draft.template and draft.template.legal_articles:
+            for art in draft.template.legal_articles:
+                legal_references.append({
+                    'article': f'Điều {art.article_number}',
+                    'law': art.document_name,
+                    'description': art.summary or art.article_title,
+                })
+        elif draft.legal_basis:
+            for ref in draft.legal_basis:
+                legal_references.append({'article': ref, 'law': '', 'description': ''})
+
+        # Build the complete contract JSON
+        contract_data = {
+            'contract_type': draft.contract_type,
+            'contract_type_vn': contract_type_vn,
+            'created_at': datetime.now().isoformat(),
+            'status': 'draft',
+            'legal_references': legal_references,
+            'fields': self._group_fields(draft),
+            'articles': draft.articles,
+        }
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        json_filename = f"{draft.contract_type}_{timestamp}.json"
+        json_bytes = json.dumps(contract_data, ensure_ascii=False, indent=2).encode('utf-8')
+
+        # Upload JSON to Supabase Storage
+        self._upload_to_supabase_storage(json_filename, json_bytes, "application/json")
+
+        return json_filename, json_bytes
+
     def _export_pdf(self, filename: Optional[str] = None) -> InteractiveChatResponse:
-        """Export current contract to PDF"""
+        """Export current contract to PDF — Supabase Storage only, no local files."""
         session = self.get_session()
 
         if not session.current_draft:
@@ -1051,40 +1489,36 @@ Khi nguoi dung muon xem hop dong, hay huong dan ho noi 'xem hop dong' de mo tron
 
         draft = session.current_draft
 
-        # Determine output path
-        if not filename:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"contract_{draft.contract_type}_{timestamp}.pdf"
-
-        output_path = Path.cwd() / filename
-
         try:
-            # Map dynamic template fields to generator format
-            field_data = {}
-            for field in draft.template.fields:
-                value = draft.field_values.get(field.name, '________________')
-                field_data[field.name] = value
+            json_filename, json_bytes = self._build_contract_json(draft)
+            pdf_filename = filename or json_filename.replace('.json', '.pdf')
 
-            # Generate PDF
-            result = self.pdf_generator.generate(
-                template_type=draft.contract_type,
-                data=field_data,
-                output_path=str(output_path),
-                skip_validation=True
-            )
+            # Temp files for PDF generation → upload → clean up
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_json = Path(tmp_dir) / json_filename
+                tmp_pdf = Path(tmp_dir) / pdf_filename
 
-            # Mark as exported
+                tmp_json.write_bytes(json_bytes)
+
+                pdf_gen = UniversalPDFGenerator()
+                pdf_gen.generate(contract_path=str(tmp_json), output_path=str(tmp_pdf))
+
+                pdf_bytes = tmp_pdf.read_bytes()
+
+            # Upload to Supabase Storage
+            pdf_url = self._upload_to_supabase_storage(pdf_filename, pdf_bytes, "application/pdf")
+
             draft.state = 'exported'
 
             return InteractiveChatResponse(
-                message=self._random_response('pdf_success', path=str(output_path)),
-                pdf_path=str(output_path),
+                message=self._random_response('pdf_success'),
+                pdf_path=pdf_url,
                 action_taken="pdf_exported"
             )
 
         except Exception as e:
             return InteractiveChatResponse(
-                message=f"Ui, co loi khi xuat PDF: {e}. Thu lai nhe!",
+                message=f"Ui, có lỗi khi xuất PDF: {e}. Thử lại nhé!",
                 action_taken="error"
             )
 
@@ -1123,13 +1557,13 @@ Khi nguoi dung muon xem hop dong, hay huong dan ho noi 'xem hop dong' de mo tron
             draft.field_values[actual_name] = value
             draft.last_modified = datetime.now()
             return InteractiveChatResponse(
-                message=f"OK, da sua {actual_name} thanh \"{value}\" roi!",
+                message=f"OK, đã sửa {actual_name} thành \"{value}\" rồi!",
                 contract_draft=draft,
                 action_taken="field_updated"
             )
 
         return InteractiveChatResponse(
-            message=f"Hmm, khong tim thay truong '{field_name}'. Thu: {', '.join(field_names[:3])}...",
+            message=f"Hmm, không tìm thấy trường '{field_name}'. Thử: {', '.join(field_names[:3])}...",
             action_taken="field_not_found"
         )
 
@@ -1144,7 +1578,7 @@ Khi nguoi dung muon xem hop dong, hay huong dan ho noi 'xem hop dong' de mo tron
             )
 
         draft = session.current_draft
-        type_name = self.CONTRACT_TYPE_NAMES.get(draft.contract_type, draft.contract_type)
+        type_name = draft.template.name if draft.template else draft.contract_type
 
         # Just show brief status
         filled_count = len(draft.field_values)
@@ -1155,12 +1589,12 @@ Khi nguoi dung muon xem hop dong, hay huong dan ho noi 'xem hop dong' de mo tron
         missing = [f.label for f in required_fields if f.name not in draft.field_values]
 
         if missing:
-            status_msg = f"Hop dong {type_name}: {filled_count}/{total_required} truong bat buoc da dien."
+            status_msg = f"Hợp đồng {type_name}: {filled_count}/{total_required} trường bắt buộc đã điền."
             if len(missing) <= 3:
-                status_msg += f"\nCon thieu: {', '.join(missing)}"
-            status_msg += "\n\nNoi 'xem hop dong' de xem chi tiet tren web!"
+                status_msg += f"\nCòn thiếu: {', '.join(missing)}"
+            status_msg += "\n\nNói 'xem hợp đồng' để xem chi tiết trên web!"
         else:
-            status_msg = f"Hop dong {type_name} da du thong tin roi! Noi 'xem hop dong' de xem truoc, hoac 'xuat pdf' de tai ve."
+            status_msg = f"Hợp đồng {type_name} đã đủ thông tin rồi! Nói 'xem hợp đồng' để xem trước, hoặc 'xuất pdf' để tải về."
 
         return InteractiveChatResponse(
             message=status_msg,
@@ -1172,18 +1606,18 @@ Khi nguoi dung muon xem hop dong, hay huong dan ho noi 'xem hop dong' de mo tron
         """Research a specific legal topic"""
         result = await self.research_service.research(topic, max_sources=3)
 
-        message = f"""KET QUA NGHIEN CUU: {topic}
+        message = f"""KẾT QUẢ NGHIÊN CỨU: {topic}
 
 {result.analyzed_content}
 
-Nguon tham khao: {len(result.crawled_sources)} van ban
+Nguồn tham khảo: {len(result.crawled_sources)} văn bản
 """
 
         if result.legal_articles:
-            message += f"\nCac dieu luat lien quan: {len(result.legal_articles)} dieu"
+            message += f"\nCác điều luật liên quan: {len(result.legal_articles)} điều"
 
         if result.suggested_contract_type:
-            message += f"\n\n[Goi y: Ban co the tao hop dong {result.suggested_contract_type}]"
+            message += f"\n\n[Gợi ý: Bạn có thể tạo hợp đồng {result.suggested_contract_type}]"
 
         return InteractiveChatResponse(
             message=message,

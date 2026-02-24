@@ -1,0 +1,259 @@
+{
+  "contract_type": "cho_thue_dat",
+  "contract_type_vn": "Hợp đồng cho thuê đất",
+  "created_at": "2026-02-24T16:17:02.642217",
+  "status": "draft",
+  "legal_references": [
+    {
+      "article": "Điều 172 Luật Đất đai 2024",
+      "law": "",
+      "description": ""
+    },
+    {
+      "article": "Điều 120 Luật Đất đai 2024",
+      "law": "",
+      "description": ""
+    },
+    {
+      "article": "Điều 43 Nghị định 102/2024/NĐ-CP",
+      "law": "",
+      "description": ""
+    },
+    {
+      "article": "Điều 46 Luật Đất đai 2024",
+      "law": "",
+      "description": ""
+    },
+    {
+      "article": "Điều 33 Luật Đất đai 2024",
+      "law": "",
+      "description": ""
+    }
+  ],
+  "fields": {
+    "ben_cho_thue": {
+      "_label": "THÔNG TIN BÊN CHO THUÊ (BÊN A)",
+      "full_name": {
+        "value": "vũ bảo lâm",
+        "label": "Họ và tên bên cho thuê"
+      },
+      "birth_date": {
+        "value": "20/11/2001",
+        "label": "Ngày sinh bên cho thuê"
+      },
+      "id_number": {
+        "value": "066201011284",
+        "label": "Số CCCD/CMND bên cho thuê"
+      },
+      "id_issue_date": {
+        "value": "20/02/2021",
+        "label": "Ngày cấp CCCD/CMND bên cho thuê"
+      },
+      "id_issue_place": {
+        "value": "đà nẵng",
+        "label": "Nơi cấp CCCD/CMND bên cho thuê"
+      },
+      "address": {
+        "value": "đà nẵng",
+        "label": "Địa chỉ thường trú bên cho thuê"
+      },
+      "phone": {
+        "value": "0838777702",
+        "label": "Số điện thoại bên cho thuê"
+      }
+    },
+    "ben_thue": {
+      "_label": "THÔNG TIN BÊN THUÊ (BÊN B)",
+      "full_name": {
+        "value": "nguyễn văn b",
+        "label": "Họ và tên bên thuê"
+      },
+      "birth_date": {
+        "value": "20/02/2002",
+        "label": "Ngày sinh bên thuê"
+      },
+      "id_number": {
+        "value": "066201011288",
+        "label": "Số CCCD/CMND bên thuê"
+      },
+      "id_issue_date": {
+        "value": "20/02/2021",
+        "label": "Ngày cấp CCCD/CMND bên thuê"
+      },
+      "id_issue_place": {
+        "value": "đà nẵng",
+        "label": "Nơi cấp CCCD/CMND bên thuê"
+      },
+      "address": {
+        "value": "đà nẵng",
+        "label": "Địa chỉ thường trú bên thuê"
+      },
+      "phone": {
+        "value": "0889223410",
+        "label": "Số điện thoại bên thuê"
+      }
+    },
+    "thong_tin_dat": {
+      "_label": "THÔNG TIN THỬA ĐẤT CHO THUÊ",
+      "address": {
+        "value": "đà nẵng",
+        "label": "Địa chỉ thửa đất"
+      },
+      "area": {
+        "value": "200",
+        "label": "Diện tích đất (m²)"
+      },
+      "certificate_number": {
+        "value": "12328412",
+        "label": "Số giấy chứng nhận quyền sử dụng đất"
+      },
+      "certificate_issue_date": {
+        "value": "20/02/2021",
+        "label": "Ngày cấp giấy chứng nhận"
+      },
+      "certificate_issue_place": {
+        "value": "đà nẵng",
+        "label": "Nơi cấp giấy chứng nhận"
+      },
+      "use_purpose": {
+        "value": "sử dụng kinh doanh",
+        "label": "Mục đích sử dụng đất"
+      },
+      "use_conditions": {
+        "value": "không có",
+        "label": "Điều kiện sử dụng đất"
+      }
+    },
+    "tai_chinh": {
+      "_label": "ĐIỀU KIỆN TÀI CHÍNH",
+      "rental_price": {
+        "value": "20000000",
+        "label": "Giá thuê đất"
+      },
+      "rental_term": {
+        "value": "3",
+        "label": "Thời hạn thuê (năm)"
+      }
+    },
+    "thoi_han": {
+      "_label": "THỜI HẠN VÀ ĐIỀU KIỆN HỢP ĐỒNG",
+      "contract_start_date": {
+        "value": "01/03/2026",
+        "label": "Ngày bắt đầu hợp đồng"
+      },
+      "contract_end_date": {
+        "value": "01/03/2029",
+        "label": "Ngày kết thúc hợp đồng"
+      },
+      "contract_termination_conditions": {
+        "value": "cả 2 bên đồng ý",
+        "label": "Điều kiện chấm dứt hợp đồng"
+      }
+    },
+    "thong_tin_khac": {
+      "_label": "THÔNG TIN KHÁC",
+      "payment_method": {
+        "value": "chuyển khoản",
+        "label": "Phương thức thanh toán"
+      },
+      "payment_schedule": {
+        "value": "ngày 5 hàng tháng",
+        "label": "Lịch thanh toán"
+      },
+      "maintenance_responsibility": {
+        "value": "không có",
+        "label": "Trách nhiệm bảo trì"
+      },
+      "dispute_resolution": {
+        "value": "gặp mặt trực tiếp",
+        "label": "Phương thức giải quyết tranh chấp"
+      }
+    }
+  },
+  "articles": [
+    {
+      "title": "ĐIỀU 1: ĐỐI TƯỢNG CỦA HỢP ĐỒNG",
+      "content": [
+        "1.1. Bên A đồng ý cho Bên B thuê thửa đất có địa chỉ tại Đà Nẵng, diện tích 200 m².",
+        "1.2. Thửa đất được xác định theo Giấy chứng nhận quyền sử dụng đất số 12328412 do Đà Nẵng cấp ngày 20/02/2021.",
+        "1.3. Mục đích sử dụng đất: sử dụng kinh doanh, phù hợp với quy định tại Điều 172 Luật Đất đai 2024.",
+        "1.4. Bên B được sử dụng đất theo đúng mục đích đã được xác định và phải tuân thủ các quy định của pháp luật về đất đai."
+      ]
+    },
+    {
+      "title": "ĐIỀU 2: GIÁ VÀ PHƯƠNG THỨC THANH TOÁN",
+      "content": [
+        "2.1. Giá thuê đất là 20.000.000 VNĐ/tháng (Hai mươi triệu đồng Việt Nam).",
+        "2.2. Phương thức thanh toán: chuyển khoản vào tài khoản của Bên A.",
+        "2.3. Lịch thanh toán: Bên B thanh toán tiền thuê đất vào ngày 5 hàng tháng.",
+        "2.4. Trường hợp Bên B chậm thanh toán quá 15 ngày, phải chịu lãi suất 0,05%/ngày trên số tiền chậm thanh toán.",
+        "2.5. Mọi chi phí chuyển khoản do Bên B chịu."
+      ]
+    },
+    {
+      "title": "ĐIỀU 3: THỜI HẠN HỢP ĐỒNG",
+      "content": [
+        "3.1. Thời hạn thuê đất là 3 năm, từ ngày 01/03/2026 đến ngày 01/03/2029.",
+        "3.2. Thời hạn thuê đất không vượt quá thời hạn sử dụng đất ghi trong Giấy chứng nhận quyền sử dụng đất, phù hợp với Điều 120 Luật Đất đai 2024.",
+        "3.3. Hết thời hạn hợp đồng, Bên B phải bàn giao lại đất cho Bên A trong tình trạng ban đầu.",
+        "3.4. Trường hợp hai bên có nhu cầu gia hạn, phải thỏa thuận bằng văn bản trước khi hợp đồng hết hạn ít nhất 30 ngày."
+      ]
+    },
+    {
+      "title": "ĐIỀU 4: QUYỀN VÀ NGHĨA VỤ CỦA BÊN A",
+      "content": [
+        "4.1. Quyền của Bên A: Thu tiền thuê đất đúng hạn; Yêu cầu Bên B sử dụng đất đúng mục đích; Nhận lại đất khi hết hạn hợp đồng; Đơn phương chấm dứt hợp đồng nếu Bên B vi phạm nghiêm trọng.",
+        "4.2. Nghĩa vụ của Bên A: Bàn giao đất cho Bên B đúng thời hạn và trong tình trạng có thể sử dụng được; Đảm bảo quyền sử dụng đất hợp pháp của Bên B trong thời gian thuê; Không can thiệp trái pháp luật vào việc sử dụng đất của Bên B.",
+        "4.3. Thông báo cho Bên B về các thay đổi liên quan đến quyền sử dụng đất (nếu có).",
+        "4.4. Chịu trách nhiệm về tính hợp pháp của quyền sử dụng đất theo quy định tại Điều 46 Luật Đất đai 2024."
+      ]
+    },
+    {
+      "title": "ĐIỀU 5: QUYỀN VÀ NGHĨA VỤ CỦA BÊN B",
+      "content": [
+        "5.1. Quyền của Bên B: Sử dụng đất theo đúng mục đích kinh doanh đã thỏa thuận; Được bảo vệ quyền và lợi ích hợp pháp trong thời gian thuê đất; Yêu cầu Bên A bàn giao đất đúng thời hạn.",
+        "5.2. Nghĩa vụ của Bên B: Thanh toán tiền thuê đất đầy đủ, đúng hạn; Sử dụng đất đúng mục đích, không làm ảnh hưởng đến môi trường và quyền lợi của người khác; Tuân thủ các quy định của pháp luật về đất đai.",
+        "5.3. Bảo quản, giữ gìn đất thuê, không được chuyển nhượng, cho thuê lại khi chưa có sự đồng ý của Bên A.",
+        "5.4. Chấp hành đầy đủ các quy định tại Điều 33 Luật Đất đai 2024 về nghĩa vụ của người sử dụng đất."
+      ]
+    },
+    {
+      "title": "ĐIỀU 6: CAM KẾT CỦA CÁC BÊN",
+      "content": [
+        "6.1. Bên A cam kết: Đất cho thuê có nguồn gốc hợp pháp, không có tranh chấp; Giấy chứng nhận quyền sử dụng đất là bản chính, hợp lệ; Không cho bên thứ ba khác thuê cùng thửa đất này trong thời gian hợp đồng có hiệu lực.",
+        "6.2. Bên B cam kết: Sử dụng đất đúng mục đích, tuân thủ pháp luật; Thanh toán tiền thuê đầy đủ, đúng hạn; Không làm ảnh hưởng đến môi trường và quyền lợi của người xung quanh.",
+        "6.3. Cả hai bên cam kết thực hiện đúng các điều khoản đã thỏa thuận trong hợp đồng này.",
+        "6.4. Mọi thay đổi, bổ sung hợp đồng phải được hai bên thỏa thuận bằng văn bản."
+      ]
+    },
+    {
+      "title": "ĐIỀU 7: TRÁCH NHIỆM DO VI PHẠM HỢP ĐỒNG",
+      "content": [
+        "7.1. Bên nào vi phạm hợp đồng phải chịu trách nhiệm bồi thường thiệt hại cho bên bị vi phạm theo quy định của pháp luật.",
+        "7.2. Trường hợp Bên B chậm thanh toán tiền thuê quá 30 ngày, Bên A có quyền đơn phương chấm dứt hợp đồng và yêu cầu bồi thường thiệt hại.",
+        "7.3. Trường hợp Bên B sử dụng đất sai mục đích hoặc vi phạm pháp luật đất đai, Bên A có quyền chấm dứt hợp đồng ngay lập tức.",
+        "7.4. Bên vi phạm phải chịu mọi chi phí phát sinh do việc vi phạm gây ra, bao gồm chi phí giải quyết tranh chấp (nếu có).",
+        "7.5. Việc xử lý vi phạm tuân thủ các quy định tại Điều 43 Nghị định 102/2024/NĐ-CP."
+      ]
+    },
+    {
+      "title": "ĐIỀU 8: GIẢI QUYẾT TRANH CHẤP",
+      "content": [
+        "8.1. Mọi tranh chấp phát sinh từ hợp đồng này sẽ được các bên giải quyết trước tiên bằng phương thức gặp mặt trực tiếp, thương lượng, hòa giải.",
+        "8.2. Trường hợp không thể giải quyết được bằng thương lượng, tranh chấp sẽ được đưa ra Tòa án có thẩm quyền để giải quyết theo quy định của pháp luật.",
+        "8.3. Trong quá trình giải quyết tranh chấp, các bên vẫn phải tiếp tục thực hiện các nghĩa vụ không có tranh chấp trong hợp đồng.",
+        "8.4. Chi phí giải quyết tranh chấp do bên thua kiện chịu, trừ trường hợp Tòa án có quyết định khác."
+      ]
+    },
+    {
+      "title": "ĐIỀU 9: ĐIỀU KHOẢN CHUNG",
+      "content": [
+        "9.1. Hợp đồng này có hiệu lực kể từ ngày ký và chấm dứt vào ngày 01/03/2029 hoặc khi cả hai bên đồng ý chấm dứt trước thời hạn.",
+        "9.2. Hợp đồng được lập thành 02 bản có giá trị pháp lý như nhau, mỗi bên giữ 01 bản.",
+        "9.3. Các bên có thể chấm dứt hợp đồng trước thời hạn khi cả hai bên đồng ý bằng văn bản.",
+        "9.4. Hợp đồng này được thực hiện theo pháp luật Việt Nam, đặc biệt là Luật Đất đai 2024 và các văn bản hướng dẫn thi hành.",
+        "9.5. Những vấn đề chưa được quy định trong hợp đồng sẽ được giải quyết theo quy định của pháp luật hiện hành."
+      ]
+    }
+  ]
+}

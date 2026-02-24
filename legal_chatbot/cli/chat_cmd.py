@@ -96,4 +96,4 @@ def _chat_rich(query: str):
         print("Hay dam bao:")
         print("1. Da chay: python -m legal_chatbot init")
         print("2. Da them du lieu: python -m legal_chatbot add-sample")
-        print("3. File .env co GROQ_API_KEY hop le")
+        print("3. File .env co ANTHROPIC_API_KEY hop le")

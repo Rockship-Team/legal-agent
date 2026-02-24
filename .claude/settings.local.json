@@ -109,7 +109,15 @@
       "Bash(git -C \"C:\\\\Users\\\\ADMIN\\\\chatbot\" status --short)",
       "Bash(python -m pytest:*)",
       "Bash(cd:*)",
-      "Bash(PYTHONIOENCODING=utf-8 python:*)"
+      "Bash(PYTHONIOENCODING=utf-8 python:*)",
+      "Bash(curl:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(grep:*)",
+      "WebFetch(domain:www.haihai.ai)",
+      "Bash(tasklist:*)",
+      "Bash(pushd:*)",
+      "Bash(popd:*)",
+      "Bash(npx vite build:*)"
     ]
   }
 }
