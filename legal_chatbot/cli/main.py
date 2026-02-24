@@ -937,13 +937,14 @@ def search_articles(
 @app.command("db-articles")
 def db_articles(
     category: str = typer.Argument(None, help="Category name (e.g. dat_dai, lao_dong)"),
-    keyword: str = typer.Option(None, "--keyword", "-q", help="Filter by keyword in content/title"),
-    limit: int = typer.Option(30, "--limit", "-l", help="Max articles to return"),
+    keyword: str = typer.Option(None, "--keyword", "-q", help="Comma-separated keywords (e.g. 'tách thửa,đăng ký biến động')"),
+    limit: int = typer.Option(30, "--limit", "-l", help="Max articles per keyword"),
+    compact: bool = typer.Option(False, "--compact", "-c", help="Compact output: title + 200-char snippet only"),
 ):
     """List articles from DB by category or keyword (no embedding model needed).
 
     Fast, instant query — no embedding model, no LLM. Just reads from Supabase.
-    Use this for browsing articles or researching a topic by category.
+    Supports multiple comma-separated keywords in a single call.
     """
     from legal_chatbot.utils.config import get_settings
 
@@ -971,56 +972,62 @@ def db_articles(
         }, ensure_ascii=False, indent=2))
         return
 
-    # Build query
-    # Use PostgREST embedded join to get document_title from legal_documents
-    query = client.table("articles").select(
-        "article_number, title, content, document_id, legal_documents(title, document_number)"
-    )
-
-    # Filter by category
+    # Resolve doc_ids for category (shared across all keyword queries)
+    doc_ids = None
     if category:
-        # Resolve category_id
         cat_result = client.table("legal_categories").select("id").eq("name", category).limit(1).execute()
         if not cat_result.data:
             console.print(json.dumps({"error": f"Category '{category}' not found", "articles": []}, ensure_ascii=False))
             return
         cat_id = cat_result.data[0]["id"]
-
-        # Get document IDs in this category
         docs = client.table("legal_documents").select("id").eq("category_id", cat_id).execute()
         if not docs.data:
             console.print(json.dumps({"error": f"No documents in category '{category}'", "articles": []}, ensure_ascii=False))
             return
         doc_ids = [d["id"] for d in docs.data]
-        query = query.in_("document_id", doc_ids)
 
-    # Filter by keyword
-    if keyword:
-        query = query.or_(f"content.ilike.%{keyword}%,title.ilike.%{keyword}%")
+    # Split comma-separated keywords into list
+    keywords = [k.strip() for k in keyword.split(",") if k.strip()] if keyword else [None]
 
-    query = query.order("article_number").limit(limit)
-    result = query.execute()
+    all_results = []
+    seen_ids = set()  # Dedup by (article_number, document_title)
 
-    if not result.data:
+    for kw in keywords:
+        query = client.table("articles").select(
+            "article_number, title, content, document_id, legal_documents(title, document_number)"
+        )
+        if doc_ids is not None:
+            query = query.in_("document_id", doc_ids)
+        if kw:
+            query = query.or_(f"content.ilike.%{kw}%,title.ilike.%{kw}%")
+        query = query.order("article_number").limit(limit)
+        result = query.execute()
+
+        for a in result.data or []:
+            doc_info = a.get("legal_documents") or {}
+            art_key = (a.get("article_number"), doc_info.get("title", ""))
+            if art_key in seen_ids:
+                continue
+            seen_ids.add(art_key)
+            content = a.get("content", "")
+            if compact:
+                content = content[:200] + "..." if len(content) > 200 else content
+            all_results.append({
+                "article_number": a.get("article_number"),
+                "title": a.get("title", ""),
+                "document_title": doc_info.get("title", ""),
+                "content": content,
+            })
+
+    if not all_results:
         console.print(json.dumps({"articles": [], "message": f"Khong tim thay articles cho '{category or keyword}'"}, ensure_ascii=False))
         return
-
-    # Extract document_title from embedded join
-    articles = []
-    for a in result.data:
-        doc_info = a.get("legal_documents") or {}
-        articles.append({
-            "article_number": a.get("article_number"),
-            "title": a.get("title", ""),
-            "document_title": doc_info.get("title", ""),
-            "content": a.get("content", ""),
-        })
 
     console.print(json.dumps({
         "category": category,
         "keyword": keyword,
-        "total": len(articles),
-        "articles": articles,
+        "total": len(all_results),
+        "articles": all_results,
     }, ensure_ascii=False, indent=2))
 
 

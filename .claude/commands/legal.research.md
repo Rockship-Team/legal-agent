@@ -15,6 +15,15 @@ Tim hieu luat phap Viet Nam ve bat ky chu de nao.
 - KHONG dung Groq API — Claude truc tiep phan tich va tra loi
 - Response than thien nhu dang chat voi AI assistant
 
+## CRITICAL RULES
+
+1. **KHONG BAO GIO** redirect output ra file (KHONG dung `>`, `>>`, `2>&1 >`)
+2. **KHONG BAO GIO** tao file tmp_*.json hay bat ky temp file nao
+3. **KHONG BAO GIO** goi y crawl, pipeline, hay cach them du lieu
+4. **KHONG BAO GIO** dung WebSearch, Groq, hay external API
+5. **LUON LUON** dung flag `--compact` khi goi db-articles
+6. Doc output TRUC TIEP tu stdout, KHONG luu file
+
 ## Workflow
 
 ### Step 1: Xac dinh chu de
@@ -32,14 +41,13 @@ Vi du: hop dong thue nha, chuyen nhuong dat, lao dong, vay tien, ...
 **BUOC 1** — Xem categories da co:
 
 ```bash
-cd c:/Users/ADMIN/chatbot
 python -m legal_chatbot db-articles
 ```
 
 Tra ve JSON danh sach categories co articles.
 
 **BUOC 2** — Map chu de sang category:
-- "dat", "dat dai", "chuyen nhuong dat", "mua ban dat" → `dat_dai`
+- "dat", "dat dai", "chuyen nhuong dat", "mua ban dat", "tien su dung dat" → `dat_dai`
 - "nha", "thue nha", "mua nha" → `nha_o`
 - "lao dong", "hop dong lao dong", "thu viec" → `lao_dong`
 - "dan su", "vay tien", "uy quyen", "dich vu" → `dan_su`
@@ -48,22 +56,29 @@ Tra ve JSON danh sach categories co articles.
 
 Neu khong map duoc hoac category KHONG co trong DB → chuyen sang Step 3b.
 
-**BUOC 3** — Lay articles tu DB:
+**BUOC 3** — Lay articles tu DB (LUON dung `--compact`):
 
-Cach 1 (neu match contract template): Nhanh nhat, dung cached articles
+**CHI GOI 1 LENH DUY NHAT** voi nhieu keyword cach nhau boi dau phay:
+```bash
+python -m legal_chatbot db-articles [CATEGORY] --keyword "[kw1],[kw2],[kw3]" --limit 30 --compact
+```
+
+Vi du voi cau hoi "chuyen muc dich su dung dat va tinh tien":
+```bash
+python -m legal_chatbot db-articles dat_dai --keyword "chuyển mục đích,tiền sử dụng đất,bảng giá đất" --limit 30 --compact
+```
+
+Vi du voi cau hoi "tach thua dat cho con":
+```bash
+python -m legal_chatbot db-articles dat_dai --keyword "tách thửa,đăng ký biến động,tặng cho quyền sử dụng đất" --limit 30 --compact
+```
+
+Neu match contract template (nhanh nhat):
 ```bash
 python -m legal_chatbot contract-lookup [CONTRACT_TYPE]
 ```
 
-Cach 2 (neu chi co category, khong match template): Query articles theo category
-```bash
-python -m legal_chatbot db-articles [CATEGORY] --limit 30
-```
-
-Cach 3 (neu muon loc theo keyword cu the):
-```bash
-python -m legal_chatbot db-articles [CATEGORY] --keyword "[tu khoa]" --limit 30
-```
+**TUYET DOI KHONG** goi nhieu lenh rieng le. Chi 1 lenh duy nhat voi keywords cach nhau boi dau phay.
 
 ### Step 3: Phan tich va tra loi
 
@@ -74,7 +89,7 @@ python -m legal_chatbot db-articles [CATEGORY] --keyword "[tu khoa]" --limit 30
 Cach trinh bay (THAN THIEN, nhu AI chat):
 
 ```
-Minh da tim thay [N] dieu luat lien quan den [chu de] trong co so du lieu. Day la nhung diem chinh:
+Minh da tim thay [N] dieu luat lien quan den [chu de]. Day la nhung diem chinh:
 
 **Cac luat ap dung:**
 - [Ten luat]: Dieu X, Y, Z
@@ -141,6 +156,7 @@ Ban co muon:
 - **DE HIEU** — giai thich luat thanh ngon ngu binh thuong, tranh dung tu phap ly kho hieu
 - **KHONG** dung WebSearch, Groq, hay bat ky external API nao
 - **KHONG BAO GIO** goi y crawl, pipeline, hay cach them du lieu. Nguoi dung la end-user, KHONG phai admin
+- **KHONG BAO GIO** redirect output ra file hay tao temp files
 
 ## Error Handling
 

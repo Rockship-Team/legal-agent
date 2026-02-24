@@ -107,7 +107,9 @@
       "WebFetch(domain:phobienphapluat.vn)",
       "Bash(git -C \"C:\\\\Users\\\\ADMIN\\\\chatbot\" remote get-url origin)",
       "Bash(git -C \"C:\\\\Users\\\\ADMIN\\\\chatbot\" status --short)",
-      "Bash(python -m pytest:*)"
+      "Bash(python -m pytest:*)",
+      "Bash(cd:*)",
+      "Bash(PYTHONIOENCODING=utf-8 python:*)"
     ]
   }
 }
