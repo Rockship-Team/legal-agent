@@ -429,6 +429,50 @@ class SupabaseClient(DatabaseInterface):
         )
         return result.data
 
+    def get_articles_by_category(self, category_name: str, limit: int = 100) -> List[dict]:
+        """Get articles for a category (via legal_documents join).
+
+        Returns article_number, title, content, document_title for LLM context.
+        """
+        client = self._read()
+        cat = (
+            client.table("legal_categories")
+            .select("id")
+            .eq("name", category_name)
+            .limit(1)
+            .execute()
+        )
+        if not cat.data:
+            return []
+        category_id = cat.data[0]["id"]
+        docs = (
+            client.table("legal_documents")
+            .select("id, title")
+            .eq("category_id", category_id)
+            .execute()
+        )
+        if not docs.data:
+            return []
+        doc_map = {d["id"]: d["title"] for d in docs.data}
+        doc_ids = list(doc_map.keys())
+        articles = (
+            client.table("articles")
+            .select("article_number, title, content, document_id")
+            .in_("document_id", doc_ids)
+            .order("article_number")
+            .limit(limit)
+            .execute()
+        )
+        results = []
+        for a in articles.data:
+            results.append({
+                "article_number": a.get("article_number"),
+                "title": a.get("title", ""),
+                "content": a.get("content", ""),
+                "document_title": doc_map.get(a.get("document_id"), ""),
+            })
+        return results
+
     def get_contract_template(self, contract_type: str) -> Optional[dict]:
         """Load single contract template by type slug."""
         client = self._read()
@@ -470,6 +514,22 @@ class SupabaseClient(DatabaseInterface):
                 ],
             })
         return results
+
+    def list_all_active_templates(self) -> List[dict]:
+        """List all active templates that have required_fields defined.
+
+        Returns flat list of {contract_type, display_name, required_fields}.
+        Used by InteractiveChatService for dynamic contract type suggestions.
+        """
+        client = self._read()
+        result = (
+            client.table("contract_templates")
+            .select("contract_type, display_name, required_fields")
+            .eq("is_active", True)
+            .not_.is_("required_fields", "null")
+            .execute()
+        )
+        return result.data
 
     def upsert_contract_template(self, template: dict) -> str:
         """Insert or update a contract template. Returns template ID."""
@@ -551,6 +611,121 @@ class SupabaseClient(DatabaseInterface):
         """Download raw document from Supabase Storage."""
         client = self._read()
         return client.storage.from_("legal-raw-documents").download(path)
+
+    def upload_contract_file(
+        self, filename: str, content: bytes, content_type: str = "application/pdf"
+    ) -> str:
+        """Upload contract file (PDF/JSON) to Supabase Storage.
+
+        Returns the signed URL for downloading.
+        Bucket: legal-contracts (must be created in Supabase Dashboard).
+        """
+        client = self._write()
+        client.storage.from_("legal-contracts").upload(
+            path=filename,
+            file=content,
+            file_options={
+                "content-type": content_type,
+                "upsert": "true",
+            },
+        )
+        return self.get_contract_file_url(filename)
+
+    def get_contract_file_url(self, filename: str, expires_in: int = 3600) -> str:
+        """Get a signed URL for a contract file (expires in 1 hour by default)."""
+        client = self._write()
+        result = client.storage.from_("legal-contracts").create_signed_url(
+            path=filename,
+            expires_in=expires_in,
+        )
+        return result.get("signedURL", "")
+
+    # =========================================================
+    # Chat session operations (persistent sessions)
+    # =========================================================
+
+    def create_chat_session(self, session_id: str, title: str = "") -> dict:
+        """Create a new chat session in Supabase."""
+        client = self._write()
+        data = {
+            "id": session_id,
+            "title": title or "Cuộc hội thoại mới",
+            "last_message_at": "now()",
+        }
+        result = client.table("chat_sessions").upsert(data).execute()
+        return result.data[0] if result.data else data
+
+    def update_chat_session(self, session_id: str, **kwargs) -> None:
+        """Update chat session fields (title, last_message_at, context)."""
+        client = self._write()
+        update_data = {}
+        if "title" in kwargs:
+            update_data["title"] = kwargs["title"]
+        if "context" in kwargs:
+            update_data["context"] = kwargs["context"]
+        update_data["last_message_at"] = "now()"
+        client.table("chat_sessions").update(update_data).eq("id", session_id).execute()
+
+    def list_chat_sessions(self, limit: int = 50) -> list[dict]:
+        """List chat sessions ordered by last_message_at DESC."""
+        client = self._write()
+        result = (
+            client.table("chat_sessions")
+            .select("id, title, created_at, last_message_at")
+            .order("last_message_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return result.data or []
+
+    def get_chat_session(self, session_id: str) -> dict | None:
+        """Get a single chat session by ID."""
+        client = self._write()
+        result = (
+            client.table("chat_sessions")
+            .select("*")
+            .eq("id", session_id)
+            .execute()
+        )
+        return result.data[0] if result.data else None
+
+    def delete_chat_session(self, session_id: str) -> bool:
+        """Delete chat session and its messages."""
+        client = self._write()
+        # Delete messages first (FK constraint)
+        client.table("chat_messages").delete().eq("session_id", session_id).execute()
+        result = client.table("chat_sessions").delete().eq("id", session_id).execute()
+        return len(result.data or []) > 0
+
+    def save_chat_message(self, session_id: str, role: str, content: str) -> dict:
+        """Save a chat message to Supabase."""
+        from uuid import uuid4
+        client = self._write()
+        data = {
+            "id": str(uuid4()),
+            "session_id": session_id,
+            "role": role,
+            "content": content,
+        }
+        result = client.table("chat_messages").insert(data).execute()
+        # Update session last_message_at
+        client.table("chat_sessions").update(
+            {"last_message_at": "now()"}
+        ).eq("id", session_id).execute()
+        return result.data[0] if result.data else data
+
+    def get_chat_messages(self, session_id: str, limit: int = 100) -> list[dict]:
+        """Get messages for a chat session, ordered by created_at ASC."""
+        client = self._write()
+        result = (
+            client.table("chat_messages")
+            .select("id, session_id, role, content, created_at")
+            .eq("session_id", session_id)
+            .order("created_at", desc=False)
+            .limit(limit)
+            .execute()
+        )
+        return result.data or []
 
 
 def get_database(mode: str = None) -> DatabaseInterface:

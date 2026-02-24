@@ -12,7 +12,7 @@ $ARGUMENTS
 
 Tim hieu luat phap Viet Nam ve bat ky chu de nao.
 - Chi dung du lieu trong DB (KHONG web search)
-- KHONG dung Groq API — Claude truc tiep phan tich va tra loi
+- KHONG dung external LLM API — Claude truc tiep phan tich va tra loi
 - Response than thien nhu dang chat voi AI assistant
 
 ## CRITICAL RULES
@@ -20,7 +20,7 @@ Tim hieu luat phap Viet Nam ve bat ky chu de nao.
 1. **KHONG BAO GIO** redirect output ra file (KHONG dung `>`, `>>`, `2>&1 >`)
 2. **KHONG BAO GIO** tao file tmp_*.json hay bat ky temp file nao
 3. **KHONG BAO GIO** goi y crawl, pipeline, hay cach them du lieu
-4. **KHONG BAO GIO** dung WebSearch, Groq, hay external API
+4. **KHONG BAO GIO** dung WebSearch, external LLM, hay external API
 5. **LUON LUON** dung flag `--compact` khi goi db-articles
 6. Doc output TRUC TIEP tu stdout, KHONG luu file
 
@@ -154,7 +154,7 @@ Ban co muon:
 - **RO RANG** — trich dan cu the Dieu X, Luat Y (nam Z)
 - **TRUNG THUC** — chi noi nhung gi co trong DB, khong tu suy dien/hallucinate
 - **DE HIEU** — giai thich luat thanh ngon ngu binh thuong, tranh dung tu phap ly kho hieu
-- **KHONG** dung WebSearch, Groq, hay bat ky external API nao
+- **KHONG** dung WebSearch, external LLM, hay bat ky external API nao
 - **KHONG BAO GIO** goi y crawl, pipeline, hay cach them du lieu. Nguoi dung la end-user, KHONG phai admin
 - **KHONG BAO GIO** redirect output ra file hay tao temp files
 

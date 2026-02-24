@@ -286,6 +286,31 @@ class CrawlerService:
 
         return documents
 
+    async def search_documents(self, topic: str, limit: int = 20) -> List[dict]:
+        """Search for legal documents matching a topic (browserless).
+
+        Uses Anthropic Claude API with web_search tool to discover document
+        URLs from thuvienphapluat.vn. No browser required.
+
+        Returns list of {url, title} dicts.
+
+        Args:
+            topic: Search keyword (e.g. "đất đai", "lao động", "hôn nhân")
+            limit: Maximum number of results
+        """
+        from legal_chatbot.utils.llm import search_web_urls
+
+        logger.info(f"Searching thuvienphapluat.vn for: {topic} (via Claude web_search)")
+
+        documents = search_web_urls(
+            topic=topic,
+            domain="thuvienphapluat.vn",
+            limit=limit,
+        )
+
+        logger.info(f"Found {len(documents)} documents for '{topic}'")
+        return documents
+
     @staticmethod
     def compute_content_hash(html_content: str) -> str:
         """Compute SHA-256 hash of content for change detection."""

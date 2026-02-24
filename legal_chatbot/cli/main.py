@@ -332,25 +332,31 @@ def research(
 @app.command("pipeline")
 def pipeline_command(
     action: str = typer.Argument(..., help="Action: crawl, status, categories, browse, fix-data"),
-    category: str = typer.Option(None, "--category", "-c", help="Category name (e.g., dat_dai)"),
+    topic: str = typer.Option(None, "--topic", "-t", help="Search topic (e.g., 'đất đai', 'lao động')"),
+    category: str = typer.Option(None, "--category", "-c", help="Category name for browse"),
     doc: str = typer.Option(None, "--doc", "-d", help="Document number for browse (e.g., 31/2024/QH15)"),
     limit: int = typer.Option(20, "--limit", "-l", help="Max documents to crawl"),
 ):
     """Run data pipeline to crawl and index legal documents"""
-    from legal_chatbot.services.pipeline import PipelineService, CATEGORIES, URL_CATEGORY_MAP
+    from legal_chatbot.services.pipeline import PipelineService
     from legal_chatbot.db.supabase import get_database
 
     if action == "categories":
+        db = get_database()
+        pipeline = PipelineService(db=db)
+        cats = pipeline.list_categories()
+        if not cats:
+            console.print("[yellow]Chưa có category nào. Chạy 'pipeline crawl -t <chủ đề>' để crawl luật.[/yellow]")
+            return
         table = Table(title="Available Categories")
         table.add_column("Name", style="cyan")
         table.add_column("Display Name", style="green")
         table.add_column("Description")
-        table.add_column("URLs", justify="right")
-        for cat in CATEGORIES.values():
+        for cat in cats:
+            desc = cat.get("description", "")
             table.add_row(
-                cat.name, cat.display_name,
-                cat.description[:50] + "..." if len(cat.description) > 50 else cat.description,
-                str(len(cat.document_urls)),
+                cat["name"], cat.get("display_name", ""),
+                desc[:50] + "..." if len(desc) > 50 else desc,
             )
         console.print(table)
         return
@@ -404,7 +410,7 @@ def pipeline_command(
                 console.print("Run [cyan]pipeline fix-data[/cyan] to sync categories first.")
                 return
 
-            cat_display = CATEGORIES[category].display_name if category in CATEGORIES else category
+            cat_display = category
             table = Table(title=f"Documents in {cat_display}")
             table.add_column("#", justify="right", style="dim")
             table.add_column("Document Number", style="cyan")
@@ -485,19 +491,26 @@ def pipeline_command(
         return
 
     if action == "crawl":
-        if not category:
-            console.print("[red]--category is required for crawl[/red]")
-            console.print("Use [cyan]python -m legal_chatbot pipeline categories[/cyan] to see available.")
+        if not topic:
+            console.print("[red]--topic là bắt buộc[/red]")
+            console.print("Ví dụ:")
+            console.print("  [cyan]pipeline crawl --topic 'đất đai'[/cyan]")
+            console.print("  [cyan]pipeline crawl -t 'lao động' --limit 10[/cyan]")
+            console.print("  [cyan]pipeline crawl -t 'hôn nhân gia đình'[/cyan]")
             return
 
         db = get_database()
         pipeline = PipelineService(db=db)
 
         force_crawl = "--force" in sys.argv
-        console.print(f"[blue]Pipeline: {category}{'  (force)' if force_crawl else ''}[/blue]")
+        console.print(f"[blue]Pipeline: '{topic}'{'  (force)' if force_crawl else ''}[/blue]")
 
         async def run_pipeline():
-            return await pipeline.run(category, limit=limit, force=force_crawl)
+            return await pipeline.run(
+                topic=topic,
+                limit=limit,
+                force=force_crawl,
+            )
 
         with console.status("[blue]Running pipeline...[/blue]"):
             run = asyncio.run(run_pipeline())
@@ -1481,7 +1494,12 @@ d) Khong duoc don phuong cham dut hop dong thue nha o, tru cac truong hop quy di
 
 @app.command("seed-templates")
 def seed_templates():
-    """Seed contract templates into Supabase (requires db_mode=supabase)."""
+    """Auto-discover and seed contract templates from crawled articles (requires db_mode=supabase).
+
+    Uses LLM to analyze crawled articles and determine what contract types
+    can be created for each category. No hardcoded templates — everything
+    is discovered from actual legal content.
+    """
     from legal_chatbot.utils.config import get_settings
 
     settings = get_settings()
@@ -1490,47 +1508,56 @@ def seed_templates():
         raise typer.Exit(1)
 
     from legal_chatbot.db.supabase import get_database
-    from legal_chatbot.services.pipeline import PipelineService, CONTRACT_TEMPLATES
+    from legal_chatbot.services.pipeline import PipelineService
 
     db = get_database()
     pipeline = PipelineService(db=db)
     pipeline.sync_categories()
 
+    # Iterate over all categories that have crawled articles
+    all_stats = db.get_all_categories_with_stats()
+    crawled_cats = [c for c in all_stats if c.get("article_count", 0) > 0]
+
+    if not crawled_cats:
+        console.print("[yellow]Chưa có category nào được crawl. Hãy chạy pipeline crawl trước.[/yellow]")
+        raise typer.Exit(0)
+
+    console.print(f"[blue]Discovering templates for {len(crawled_cats)} crawled categories...[/blue]")
+
     count = 0
-    for cat_name in CONTRACT_TEMPLATES:
-        n = pipeline.seed_templates_for_category(cat_name)
+    for cat in crawled_cats:
+        cat_name = cat["name"]
+        console.print(f"  [blue]Analyzing {cat_name} ({cat.get('article_count', 0)} articles)...[/blue]")
+        n = pipeline.seed_templates_for_category(cat_name, cache_articles=True)
         if n:
-            console.print(f"  [green][OK][/green] {cat_name}: {n} templates")
+            console.print(f"  [green][OK][/green] {cat_name}: {n} templates discovered")
+        else:
+            console.print(f"  [yellow][-][/yellow] {cat_name}: no templates discovered")
         count += n
 
     console.print(f"\n[green][OK] Seeded {count} contract templates[/green]")
 
 
-@app.command("seed-registry")
-def seed_registry():
-    """Seed document registry entries into Supabase (requires db_mode=supabase)."""
-    from legal_chatbot.utils.config import get_settings
 
-    settings = get_settings()
-    if settings.db_mode != "supabase":
-        console.print("[red]seed-registry requires DB_MODE=supabase[/red]")
-        raise typer.Exit(1)
+@app.command("serve")
+def serve(
+    host: str = typer.Option("0.0.0.0", "--host", "-h", help="Host to bind to"),
+    port: int = typer.Option(8000, "--port", "-p", help="Port to listen on"),
+    reload: bool = typer.Option(False, "--reload", "-r", help="Enable auto-reload for development"),
+):
+    """Start the API server for natural language chat"""
+    import uvicorn
 
-    from legal_chatbot.db.supabase import get_database
-    from legal_chatbot.services.pipeline import PipelineService, CATEGORIES
+    console.print(f"[green]Starting API server at http://{host}:{port}[/green]")
+    console.print(f"[blue]Swagger UI: http://{host}:{port}/docs[/blue]")
 
-    db = get_database()
-    pipeline = PipelineService(db=db)
-    pipeline.sync_categories()
-
-    count = 0
-    for cat_name in CATEGORIES:
-        n = pipeline.seed_registry_for_category(cat_name)
-        if n:
-            console.print(f"  [green][OK][/green] {cat_name}: {n} entries")
-        count += n
-
-    console.print(f"\n[green][OK] Seeded {count} document registry entries[/green]")
+    uvicorn.run(
+        "legal_chatbot.api.app:create_app",
+        host=host,
+        port=port,
+        reload=reload,
+        factory=True,
+    )
 
 
 if __name__ == "__main__":

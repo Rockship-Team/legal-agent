@@ -13,7 +13,7 @@ def test_env(tmp_path, monkeypatch):
 
     monkeypatch.setenv("DATABASE_PATH", str(db_path))
     monkeypatch.setenv("CHROMA_PATH", str(chroma_path))
-    monkeypatch.setenv("GROQ_API_KEY", "test_key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test_key")
 
     yield
 

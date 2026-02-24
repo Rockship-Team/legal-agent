@@ -36,6 +36,16 @@ INPUT_TO_TYPE = {
     "hợp đồng dịch vụ": "dich_vu",
 }
 
+# Map English template slugs (legacy) to Vietnamese DB contract_type
+SLUG_ALIAS = {
+    "rental": "cho_thue_nha",
+    "sale_house": "mua_ban_nha",
+    "sale_land": "chuyen_nhuong_dat",
+    "sale": "mua_ban_tai_san",
+    "service": "dich_vu",
+    "employment": "hop_dong_lao_dong",
+}
+
 
 class ContractService:
     """DB-only contract creation with pre-configured templates."""
@@ -66,8 +76,13 @@ class ContractService:
         Examples:
             'mua bán đất' → 'mua_ban_dat'
             'thuê nhà' → 'cho_thue_nha'
+            'rental' → 'cho_thue_nha' (via SLUG_ALIAS)
         """
         input_lower = user_input.lower().strip()
+
+        # Check English slug alias first
+        if input_lower in SLUG_ALIAS:
+            return SLUG_ALIAS[input_lower]
 
         # Direct match
         if input_lower in INPUT_TO_TYPE:
@@ -80,6 +95,11 @@ class ContractService:
 
         # Try slug format directly
         slug_input = input_lower.replace(" ", "_")
+
+        # Check slug alias for slug format
+        if slug_input in SLUG_ALIAS:
+            return SLUG_ALIAS[slug_input]
+
         template = self.db.get_contract_template(slug_input)
         if template:
             return slug_input

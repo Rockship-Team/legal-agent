@@ -2,19 +2,19 @@
 
 from typing import Optional
 
+from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings
+
+# Load .env with override=True so .env values take priority over system env vars
+load_dotenv(override=True)
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
 
-    # API keys - support both Anthropic and Groq
+    # Anthropic API key (required for LLM)
     anthropic_api_key: Optional[str] = Field(default=None, description="Anthropic API key for Claude")
-    groq_api_key: Optional[str] = Field(default=None, description="Groq API key for LLM access")
-
-    # LLM provider: 'anthropic' or 'groq'
-    llm_provider: str = Field(default="anthropic", description="LLM provider to use")
 
     database_path: str = Field(default="./data/legal.db", description="Path to SQLite database")
     chroma_path: str = Field(default="./data/chroma", description="Path to ChromaDB storage")

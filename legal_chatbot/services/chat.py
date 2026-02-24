@@ -1,10 +1,10 @@
 """Chat agent service with DB-only RAG (no web search)"""
 
 import logging
-from groq import Groq
 from typing import Optional
 
 from legal_chatbot.utils.config import get_settings
+from legal_chatbot.utils.llm import call_llm
 from legal_chatbot.models.chat import ChatResponse, Citation
 from legal_chatbot.utils.vietnamese import extract_all_article_references
 
@@ -42,8 +42,6 @@ class ChatService:
 
     def __init__(self):
         settings = get_settings()
-        self.client = Groq(api_key=settings.groq_api_key)
-        self.model = settings.llm_model
         self.temperature = settings.llm_temperature
         self.max_tokens = settings.llm_max_tokens
         self.top_k = settings.search_top_k
@@ -103,8 +101,7 @@ class ChatService:
         # Layer 2: LLM classification fallback
         try:
             categories_str = ", ".join(CATEGORY_KEYWORDS.keys())
-            response = self.client.chat.completions.create(
-                model=self.model,
+            result = call_llm(
                 messages=[
                     {
                         "role": "system",
@@ -118,8 +115,7 @@ class ChatService:
                 ],
                 temperature=0,
                 max_tokens=20,
-            )
-            result = response.choices[0].message.content.strip().lower()
+            ).strip().lower()
             if result in CATEGORY_KEYWORDS:
                 return result
         except Exception as e:
@@ -361,14 +357,11 @@ Lưu ý: Không tìm thấy điều luật liên quan trong cơ sở dữ liệu
 
         messages.append({"role": "user", "content": user_content})
 
-        response = self.client.chat.completions.create(
-            model=self.model,
+        answer = call_llm(
             messages=messages,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
         )
-
-        answer = response.choices[0].message.content
 
         citations = self._extract_citations(answer, search_results)
         suggestions = self._suggest_templates(query, answer)
