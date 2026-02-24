@@ -76,27 +76,44 @@ class InteractiveChatResponse(BaseModel):
 class InteractiveChatService:
     """Interactive chat service with research, contract generation, and editing"""
 
-    # Human-like system prompt - conversational, friendly, natural
-    SYSTEM_PROMPT = """Bạn là một chuyên viên tư vấn pháp lý nhiệt tình và thân thiện. Hãy nói chuyện tự nhiên như một người thật, không quá trang trọng hay máy móc.
+    # System prompt — detailed legal analysis with article citations
+    SYSTEM_PROMPT = """Bạn là một chuyên viên tư vấn pháp lý Việt Nam. Hãy nói chuyện thân thiện nhưng CHUYÊN SÂU.
 
-PHONG CÁCH GIAO TIẾP:
-- Nói ngắn gọn, đi thẳng vào vấn đề
-- Dùng ngôn ngữ bình thường, dễ hiểu, tránh từ ngữ quá chuyên môn
-- Có thể dùng câu cảm thán, câu hỏi để tạo sự gần gũi
-- Không liệt kê dài dòng, chỉ nói những gì cần thiết
-- Thể hiện sự đồng cảm khi người dùng gặp vấn đề
+PHONG CÁCH:
+- Thân thiện, gần gũi nhưng vẫn chuyên nghiệp
+- Câu hỏi đơn giản → trả lời ngắn gọn
+- Câu hỏi pháp lý → trả lời THẬT CHI TIẾT, phân tích sâu
 
-VÍ DỤ CÁCH TRẢ LỜI:
-- Thay vì: "Theo quy định tại Điều 121 Luật Nhà ở 2014..."
-- Hãy nói: "À, việc này thì theo Luật Nhà ở 2014 quy định khá rõ nè. Cụ thể là..."
+KHI TRẢ LỜI CÂU HỎI PHÁP LÝ, BẮT BUỘC:
+1. Liệt kê TẤT CẢ điều luật liên quan từ CONTEXT (Điều X, Luật Y năm Z)
+2. Phân nhóm theo chủ đề: "Trường hợp 1:", "Trường hợp 2:", "Về điều kiện:", "Về thủ tục:"...
+3. Trích dẫn nguyên văn nội dung quan trọng từ điều luật (dùng *italic*)
+4. Nêu rõ trường hợp ngoại lệ, lưu ý đặc biệt
+5. Kết thúc bằng tóm tắt ngắn và gợi ý câu hỏi tiếp theo
+6. Trả lời DÀI và ĐẦY ĐỦ — không cắt ngắn, không tóm lược quá mức
 
-- Thay vì: "Tôi sẽ giúp bạn tạo hợp đồng. Các trường cần điền bao gồm: 1. Tên bên A, 2. Địa chỉ..."
-- Hãy nói: "OK, mình làm hợp đồng nhé! Cho mình hỏi, bên cho thuê tên gì?"
+VÍ DỤ CẤU TRÚC TRẢ LỜI TỐT:
+---
+Các luật áp dụng: Luật X 2024, Nghị định Y 2024
+
+**Trường hợp 1: [Mô tả]**
+Điều 138 (Luật Đất đai 2024) quy định: *"nội dung trích dẫn..."*
+Điều kiện: 1. ... 2. ... 3. ...
+
+**Trường hợp 2: [Mô tả]**
+Điều 139 (Luật Đất đai 2024) quy định giải quyết cho...
+
+**Các điều luật bổ trợ:**
+- Điều X: [nội dung]
+- Điều Y: [nội dung]
+
+**Tóm tắt:** ...
+---
 
 NGUYÊN TẮC:
-1. Trả lời dựa trên nghiên cứu từ thư viện pháp luật, nhưng diễn đạt đơn giản
-2. Khi tạo hợp đồng, HỎI TỪNG THÔNG TIN MỘT, không liệt kê hết các trường
-3. Không show nội dung hợp đồng trong chat - chỉ show khi xem trên web
+1. DỰA HOÀN TOÀN vào các điều luật trong CONTEXT — không tự suy diễn
+2. Nếu CONTEXT có 20 điều luật, hãy phân tích hết 20 điều — không bỏ qua
+3. Khi tạo hợp đồng, HỎI TỪNG THÔNG TIN MỘT
 4. Chủ động gợi ý bước tiếp theo
 
 Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuyên nghiệp."""
@@ -644,13 +661,23 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
             if msg['role'] in ['user', 'assistant']:
                 messages.append({"role": msg['role'], "content": msg['content']})
 
-        # Add context if available
-        user_content = user_input
+        # Add context — structured format so LLM knows to cite specific articles
         if context:
-            user_content = f"{user_input}\n\n[Thong tin tham khao: {context}]"
+            user_content = f"""CÁC ĐIỀU LUẬT LIÊN QUAN (từ cơ sở dữ liệu pháp luật):
+
+{context}
+
+---
+
+CÂU HỎI CỦA NGƯỜI DÙNG:
+{user_input}
+
+Hãy trả lời CHI TIẾT dựa trên các điều luật ở trên. Trích dẫn cụ thể số Điều và tên văn bản."""
+        else:
+            user_content = user_input
         messages.append({"role": "user", "content": user_content})
 
-        answer = self._call_llm(messages, temperature=0.7, max_tokens=1000)
+        answer = self._call_llm(messages, temperature=0.7, max_tokens=4096)
 
         result = InteractiveChatResponse(message=answer)
 
@@ -703,9 +730,11 @@ Nếu không xác định được, trả về: none"""
         return None
 
     async def _build_context_for_query(self, user_input: str, session: ChatSession) -> str:
-        """Build relevant context using keyword-based DB search (no embedding model needed).
+        """Build relevant context — tries vector search first, falls back to keyword.
 
-        Similar to `db-articles` CLI command: fast SQL ilike search on articles table.
+        Priority:
+        1. Vector search (ResearchService) — best quality, needs embedding model
+        2. Keyword search (SQL ilike) — fallback for serverless (no embedding model)
         """
         input_normalized = remove_diacritics(user_input.lower())
 
@@ -713,23 +742,68 @@ Nếu không xác định được, trả về: none"""
         legal_question_keywords = [
             'dieu luat', 'quy dinh', 'luat', 'phap ly', 'phap luat',
             'quyen', 'nghia vu', 'dieu kien', 'thu tuc', 'ho so',
-            'la gi', 'nhu the nao', 'can gi', 'phai', 'duoc khong'
+            'la gi', 'nhu the nao', 'can gi', 'phai', 'duoc khong',
+            'dat', 'nha', 'thue', 'mua', 'ban', 'lao dong', 'hop dong',
+            'chung nhan', 'giay phep', 'dang ky', 'cap phep', 'tranh chap',
+            'boi thuong', 'xu phat', 'hinh su', 'dan su', 'hanh chinh',
         ]
 
         is_legal_question = any(kw in input_normalized for kw in legal_question_keywords)
         if not is_legal_question:
             return ""
 
+        # Vector search disabled — testing LLM-powered keyword search
+        # To re-enable vector search, uncomment below:
+        # try:
+        #     result = await self.research_service.research(user_input, max_sources=20)
+        #     if result.has_data and result.raw_content:
+        #         return result.raw_content
+        # except Exception:
+        #     pass
+
+        # LLM-powered keyword search with relevance ranking
         try:
             return self._search_db_articles(user_input)
         except Exception as e:
             print(f"DB search error: {e}")
             return ""
 
-    def _search_db_articles(self, query: str, limit: int = 10) -> str:
-        """Keyword-based search on articles table — no embedding model needed.
+    def _extract_search_terms(self, query: str) -> list[str]:
+        """Use Claude to extract precise Vietnamese legal search terms from query.
 
-        Replicates the db-articles CLI logic: SQL ilike on content and title.
+        Returns 5-8 compound search terms optimized for SQL ilike search.
+        """
+        try:
+            result = self._call_llm(
+                [
+                    {"role": "system", "content": (
+                        "Bạn là chuyên gia pháp luật Việt Nam. "
+                        "Từ câu hỏi pháp lý, hãy trích xuất 5-8 CỤM TỪ KHÓA TIẾNG VIỆT "
+                        "chính xác nhất để tìm kiếm trong cơ sở dữ liệu điều luật.\n\n"
+                        "Yêu cầu:\n"
+                        "- Dùng cụm từ pháp lý chính xác (2-4 từ), KHÔNG dùng từ đơn\n"
+                        "- Bao gồm cả tên điều luật nếu biết (VD: 'Điều 138')\n"
+                        "- Ưu tiên thuật ngữ pháp lý chuyên ngành\n\n"
+                        "Trả về MỖI CỤM TỪ TRÊN MỘT DÒNG, không đánh số, không giải thích."
+                    )},
+                    {"role": "user", "content": query},
+                ],
+                temperature=0,
+                max_tokens=200,
+            )
+            terms = [line.strip().strip('-').strip() for line in result.strip().split('\n') if line.strip()]
+            return [t for t in terms if len(t) > 3][:8]
+        except Exception:
+            return []
+
+    def _search_db_articles(self, query: str, limit: int = 20) -> str:
+        """LLM-powered keyword search with relevance ranking.
+
+        Flow:
+        1. Claude extracts precise Vietnamese legal search terms
+        2. Search each term via SQL ilike (Vietnamese text with diacritics)
+        3. Rank articles by number of matching terms (relevance score)
+        4. Return top articles ordered by relevance, not article_number
         """
         settings = get_settings()
         if settings.db_mode != "supabase":
@@ -740,51 +814,163 @@ Nếu không xác định được, trả về: none"""
         db = get_database()
         client = db._read()
 
-        # Extract meaningful keywords from the query (skip common words)
-        stop_words = {
-            'la', 'gi', 'cua', 'va', 'trong', 'cho', 'nhu', 'the', 'nao',
-            'co', 'khong', 'duoc', 'phai', 'can', 'bao', 'nhieu', 'mot',
-            'cac', 'nhung', 'nay', 'do', 'khi', 'neu', 'thi', 'se', 'da',
-            'dang', 'tu', 'den', 'voi', 'tai', 've', 'theo', 'bang',
-        }
-        words = remove_diacritics(query.lower()).split()
-        keywords = [w for w in words if len(w) > 2 and w not in stop_words]
+        # Step 1: LLM extracts precise search terms
+        search_terms = self._extract_search_terms(query)
 
-        if not keywords:
+        # Fallback: manual keyword extraction if LLM fails
+        if not search_terms:
+            stop_words = {
+                'la', 'gi', 'cua', 'va', 'trong', 'cho', 'nhu', 'the', 'nao',
+                'co', 'khong', 'duoc', 'phai', 'can', 'bao', 'nhieu', 'mot',
+                'cac', 'nhung', 'nay', 'do', 'khi', 'neu', 'thi', 'se', 'da',
+                'dang', 'tu', 'den', 'voi', 'tai', 've', 'theo', 'bang',
+                'de', 'ma', 'hay', 'hoac', 'vi', 'sao',
+            }
+            vn_words = query.lower().split()
+            ascii_words = remove_diacritics(query.lower()).split()
+            filtered = [
+                vn_words[i] for i in range(len(vn_words))
+                if len(ascii_words[i]) > 2 and ascii_words[i] not in stop_words
+            ]
+            # Build bigrams
+            bigrams = [f"{filtered[i]} {filtered[i+1]}" for i in range(len(filtered)-1)]
+            search_terms = bigrams[:4] + filtered[:4]
+
+        if not search_terms:
             return ""
 
-        # Search using SQL ilike (same as db-articles CLI)
-        seen_ids = set()
-        results = []
+        # Step 2: Search each term — title matches score 3x, content matches 1x
+        # This ensures articles whose TITLE matches (e.g. Điều 138: "...không có giấy tờ...")
+        # rank higher than articles that merely mention the term in body text.
+        article_scores: dict[tuple, dict] = {}
 
-        for kw in keywords[:5]:  # max 5 keywords
-            result = (
+        for term in search_terms:
+            # Search TITLE first (high relevance — article is ABOUT this topic)
+            title_result = (
                 client.table("articles")
                 .select("article_number, title, content, legal_documents(title, document_number)")
-                .or_(f"content.ilike.%{kw}%,title.ilike.%{kw}%")
-                .order("article_number")
-                .limit(limit)
+                .ilike("title", f"%{term}%")
+                .limit(20)
                 .execute()
             )
-
-            for a in result.data or []:
+            for a in title_result.data or []:
                 doc_info = a.get("legal_documents") or {}
                 art_key = (a.get("article_number"), doc_info.get("title", ""))
-                if art_key in seen_ids:
-                    continue
-                seen_ids.add(art_key)
-                content = a.get("content", "")[:300]
-                results.append(
-                    f"Dieu {a.get('article_number', '?')} ({doc_info.get('title', '')}): {content}"
-                )
+                if art_key not in article_scores:
+                    article_scores[art_key] = {
+                        "data": a, "doc_info": doc_info, "score": 0,
+                    }
+                article_scores[art_key]["score"] += 3  # title match = 3 points
 
-            if len(results) >= limit:
-                break
+            # Search CONTENT (broader — article mentions this topic)
+            content_result = (
+                client.table("articles")
+                .select("article_number, title, content, legal_documents(title, document_number)")
+                .ilike("content", f"%{term}%")
+                .limit(50)
+                .execute()
+            )
+            for a in content_result.data or []:
+                doc_info = a.get("legal_documents") or {}
+                art_key = (a.get("article_number"), doc_info.get("title", ""))
+                if art_key not in article_scores:
+                    article_scores[art_key] = {
+                        "data": a, "doc_info": doc_info, "score": 0,
+                    }
+                article_scores[art_key]["score"] += 1  # content match = 1 point
 
-        if not results:
+        if not article_scores:
             return ""
 
-        return "\n\n".join(results[:limit])
+        # Step 3: Pre-rank by score (title match 3x + content match 1x), top 30
+        pre_ranked = sorted(
+            article_scores.values(),
+            key=lambda x: x["score"],
+            reverse=True,
+        )[:30]
+
+        # Step 4: LLM re-ranking — Claude picks the most relevant articles
+        ranked = self._rerank_articles(query, pre_ranked, limit)
+
+        # Step 5: Format results (full content, not truncated)
+        results = []
+        for item in ranked:
+            a = item["data"]
+            doc_info = item["doc_info"]
+            content = a.get("content", "")[:1200]
+            header = f"Điều {a.get('article_number', '?')}"
+            title = a.get("title", "")
+            if title:
+                header += f": {title}"
+            doc_title = doc_info.get("title", "")
+            results.append(f"**{header}** ({doc_title})\n{content}")
+
+        return "\n\n---\n\n".join(results)
+
+    def _rerank_articles(self, query: str, candidates: list[dict], limit: int) -> list[dict]:
+        """Use Claude to re-rank candidate articles by relevance to the query.
+
+        Takes top 30 candidates from keyword search, asks Claude to pick
+        the most relevant ones. This compensates for keyword search's
+        inability to understand semantic meaning.
+        """
+        if len(candidates) <= limit:
+            return candidates
+
+        # Build compact summary for Claude to rank
+        summaries = []
+        for i, item in enumerate(candidates):
+            a = item["data"]
+            doc_info = item["doc_info"]
+            title = a.get("title", "")
+            content = a.get("content", "")[:200]
+            doc_title = doc_info.get("title", "")
+            summaries.append(
+                f"[{i}] Điều {a.get('article_number', '?')}"
+                f"{f': {title}' if title else ''}"
+                f" ({doc_title}) — {content}"
+            )
+
+        try:
+            result = self._call_llm(
+                [
+                    {"role": "system", "content": (
+                        "Bạn là chuyên gia pháp luật Việt Nam. "
+                        "Từ danh sách điều luật dưới đây, chọn ra ĐÚNG những điều "
+                        "LIÊN QUAN TRỰC TIẾP nhất đến câu hỏi.\n\n"
+                        "Trả về CHỈ các số index [0], [1], ... cách nhau bằng dấu phẩy.\n"
+                        "Ưu tiên điều luật QUY ĐỊNH CỤ THỂ về vấn đề, "
+                        "KHÔNG ưu tiên điều định nghĩa chung."
+                    )},
+                    {"role": "user", "content": (
+                        f"CÂU HỎI: {query}\n\n"
+                        f"DANH SÁCH ĐIỀU LUẬT:\n" + "\n".join(summaries)
+                    )},
+                ],
+                temperature=0,
+                max_tokens=200,
+            )
+
+            # Parse indices from response like "0, 3, 5, 12, 7"
+            import re
+            indices = [int(x) for x in re.findall(r'\d+', result)]
+            # Filter valid indices and deduplicate while preserving order
+            seen = set()
+            valid = []
+            for idx in indices:
+                if idx < len(candidates) and idx not in seen:
+                    seen.add(idx)
+                    valid.append(idx)
+                    if len(valid) >= limit:
+                        break
+
+            if valid:
+                return [candidates[i] for i in valid]
+        except Exception:
+            pass
+
+        # Fallback: return by match_count
+        return candidates[:limit]
 
     def _get_flexible_system_prompt(self, session: ChatSession) -> str:
         """Get flexible system prompt that handles any legal topic"""

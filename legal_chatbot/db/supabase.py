@@ -697,7 +697,10 @@ class SupabaseClient(DatabaseInterface):
         result = client.table("chat_sessions").delete().eq("id", session_id).execute()
         return len(result.data or []) > 0
 
-    def save_chat_message(self, session_id: str, role: str, content: str) -> dict:
+    def save_chat_message(
+        self, session_id: str, role: str, content: str,
+        metadata: dict | None = None,
+    ) -> dict:
         """Save a chat message to Supabase."""
         from uuid import uuid4
         client = self._write()
@@ -707,6 +710,8 @@ class SupabaseClient(DatabaseInterface):
             "role": role,
             "content": content,
         }
+        if metadata:
+            data["metadata"] = metadata
         result = client.table("chat_messages").insert(data).execute()
         # Update session last_message_at
         client.table("chat_sessions").update(
@@ -719,7 +724,7 @@ class SupabaseClient(DatabaseInterface):
         client = self._write()
         result = (
             client.table("chat_messages")
-            .select("id, session_id, role, content, created_at")
+            .select("id, session_id, role, content, metadata, created_at")
             .eq("session_id", session_id)
             .order("created_at", desc=False)
             .limit(limit)

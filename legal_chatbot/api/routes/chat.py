@@ -107,7 +107,10 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail=f"Lỗi xử lý: {e}")
 
     # Persist messages to Supabase (non-blocking, best-effort)
-    await store.persist_messages(entry.session_id, request.message, response.message)
+    pdf_url = _pdf_path_to_url(response.pdf_path)
+    await store.persist_messages(
+        entry.session_id, request.message, response.message, pdf_url=pdf_url
+    )
 
     session = entry.service.session
     has_draft = session.current_draft is not None and session.current_draft.state == "ready"
@@ -128,7 +131,7 @@ async def chat(request: ChatRequest):
         ),
         has_contract=has_draft,
         html_preview=response.html_preview,
-        pdf_url=_pdf_path_to_url(response.pdf_path),
+        pdf_url=pdf_url,
     )
 
 
@@ -172,6 +175,7 @@ async def get_session_messages(session_id: str):
                 role=m["role"],
                 content=m["content"],
                 created_at=m.get("created_at"),
+                pdf_url=(m.get("metadata") or {}).get("pdf_url"),
             )
             for m in messages
         ]

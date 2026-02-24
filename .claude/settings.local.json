@@ -117,7 +117,8 @@
       "Bash(tasklist:*)",
       "Bash(pushd:*)",
       "Bash(popd:*)",
-      "Bash(npx vite build:*)"
+      "Bash(npx vite build:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
