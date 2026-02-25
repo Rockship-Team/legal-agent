@@ -1,60 +1,88 @@
-"""Vietnamese font support for ReportLab PDF generation"""
+"""Vietnamese font support for ReportLab PDF generation.
 
-import os
+Font resolution order:
+1. Bundled DejaVu Serif fonts (legal_chatbot/fonts/) — works everywhere including Vercel
+2. Windows system fonts (C:/Windows/Fonts/) — local dev on Windows
+3. Linux system fonts (/usr/share/fonts/) — Linux servers
+"""
+
+from pathlib import Path
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-# Font registration status
 _fonts_registered = False
 
-# Vietnamese-compatible fonts to try (in order of preference)
-VIETNAMESE_FONTS = [
-    # Windows fonts with Vietnamese support
-    ("Times-Vietnamese", "C:/Windows/Fonts/times.ttf"),
-    ("Times-Vietnamese-Bold", "C:/Windows/Fonts/timesbd.ttf"),
-    ("Times-Vietnamese-Italic", "C:/Windows/Fonts/timesi.ttf"),
-    ("Arial-Vietnamese", "C:/Windows/Fonts/arial.ttf"),
-    ("Arial-Vietnamese-Bold", "C:/Windows/Fonts/arialbd.ttf"),
-    ("Tahoma-Vietnamese", "C:/Windows/Fonts/tahoma.ttf"),
-    ("Tahoma-Vietnamese-Bold", "C:/Windows/Fonts/tahomabd.ttf"),
-]
+# Directory containing bundled fonts (DejaVu Serif)
+_BUNDLED_FONTS_DIR = Path(__file__).resolve().parent.parent / "fonts"
 
-# Fallback font name
-DEFAULT_FONT = "Times-Vietnamese"
-DEFAULT_FONT_BOLD = "Times-Vietnamese-Bold"
-DEFAULT_FONT_ITALIC = "Times-Vietnamese-Italic"
+# Font search paths: (registered_name, list_of_candidate_paths)
+# First found path wins for each name.
+_FONT_CANDIDATES = {
+    "Vietnamese": [
+        _BUNDLED_FONTS_DIR / "DejaVuSerif.ttf",
+        Path("C:/Windows/Fonts/times.ttf"),
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"),
+        Path("/usr/share/fonts/dejavu-serif/DejaVuSerif.ttf"),
+        Path("/usr/share/fonts/dejavu/DejaVuSerif.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf"),
+    ],
+    "Vietnamese-Bold": [
+        _BUNDLED_FONTS_DIR / "DejaVuSerif-Bold.ttf",
+        Path("C:/Windows/Fonts/timesbd.ttf"),
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"),
+        Path("/usr/share/fonts/dejavu-serif/DejaVuSerif-Bold.ttf"),
+        Path("/usr/share/fonts/dejavu/DejaVuSerif-Bold.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf"),
+    ],
+    "Vietnamese-Italic": [
+        _BUNDLED_FONTS_DIR / "DejaVuSerif-Italic.ttf",
+        Path("C:/Windows/Fonts/timesi.ttf"),
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf"),
+        Path("/usr/share/fonts/dejavu-serif/DejaVuSerif-Italic.ttf"),
+        Path("/usr/share/fonts/dejavu/DejaVuSerif-Italic.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf"),
+    ],
+}
+
+# Actual registered names (set during registration)
+_registered_names = {"normal": None, "bold": None, "italic": None}
 
 
-def register_vietnamese_fonts():
-    """Register Vietnamese-compatible fonts with ReportLab"""
+def register_vietnamese_fonts() -> bool:
+    """Register Vietnamese-compatible fonts with ReportLab."""
     global _fonts_registered
 
     if _fonts_registered:
         return True
 
-    registered = []
+    for style_key, candidates in _FONT_CANDIDATES.items():
+        for path in candidates:
+            if path.exists():
+                try:
+                    pdfmetrics.registerFont(TTFont(style_key, str(path)))
+                    # Map style_key to role
+                    if "Bold" in style_key:
+                        _registered_names["bold"] = style_key
+                    elif "Italic" in style_key:
+                        _registered_names["italic"] = style_key
+                    else:
+                        _registered_names["normal"] = style_key
+                    break  # found a font for this style
+                except Exception as e:
+                    print(f"Warning: Could not register font {style_key} from {path}: {e}")
 
-    for font_name, font_path in VIETNAMESE_FONTS:
-        if os.path.exists(font_path):
-            try:
-                pdfmetrics.registerFont(TTFont(font_name, font_path))
-                registered.append(font_name)
-            except Exception as e:
-                print(f"Warning: Could not register font {font_name}: {e}")
+    normal = _registered_names["normal"]
+    bold = _registered_names["bold"]
+    italic = _registered_names["italic"]
 
-    if registered:
-        # Register font family so ReportLab can resolve bold/italic variants
-        has_normal = DEFAULT_FONT in registered
-        has_bold = DEFAULT_FONT_BOLD in registered
-        has_italic = DEFAULT_FONT_ITALIC in registered
-        if has_normal:
-            pdfmetrics.registerFontFamily(
-                'Times-Vietnamese',
-                normal='Times-Vietnamese',
-                bold='Times-Vietnamese-Bold' if has_bold else 'Times-Vietnamese',
-                italic='Times-Vietnamese-Italic' if has_italic else 'Times-Vietnamese',
-                boldItalic='Times-Vietnamese-Bold' if has_bold else 'Times-Vietnamese',
-            )
+    if normal:
+        pdfmetrics.registerFontFamily(
+            normal,
+            normal=normal,
+            bold=bold or normal,
+            italic=italic or normal,
+            boldItalic=bold or normal,
+        )
         _fonts_registered = True
         return True
 
@@ -63,24 +91,15 @@ def register_vietnamese_fonts():
 
 
 def get_font_name(bold: bool = False, italic: bool = False) -> str:
-    """Get the appropriate font name based on style"""
+    """Get the appropriate registered font name."""
     register_vietnamese_fonts()
 
-    if bold and italic:
-        return DEFAULT_FONT_BOLD  # No bold-italic, use bold
-    elif bold:
-        return DEFAULT_FONT_BOLD
-    elif italic:
-        return DEFAULT_FONT_ITALIC
-    else:
-        return DEFAULT_FONT
+    normal = _registered_names["normal"] or "Helvetica"
+    bold_name = _registered_names["bold"] or normal
+    italic_name = _registered_names["italic"] or normal
 
-
-def is_font_available(font_name: str) -> bool:
-    """Check if a font is registered"""
-    register_vietnamese_fonts()
-    try:
-        pdfmetrics.getFont(font_name)
-        return True
-    except KeyError:
-        return False
+    if bold:
+        return bold_name
+    if italic:
+        return italic_name
+    return normal
