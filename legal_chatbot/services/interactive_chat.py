@@ -858,21 +858,51 @@ Nếu không xác định được, trả về: none"""
         if not is_legal_question:
             return ""
 
-        # 1. Vector search (best quality — semantic matching)
+        # 1. Vector search (local only — needs sentence-transformers)
         try:
+            import sentence_transformers  # noqa: F401 — availability check
             result = await self.research_service.research(user_input, max_sources=10)
             if result.has_data and result.raw_content:
                 return result.raw_content
+        except (ImportError, Exception):
+            pass
+
+        # 2. LLM-enhanced keyword search (works on Vercel)
+        try:
+            smart_terms = self._extract_search_terms_with_llm(user_input)
+            if smart_terms:
+                result = self._search_db_articles(user_input, llm_terms=smart_terms)
+                if result:
+                    return result
         except Exception:
             pass
 
-        # 2. Keyword search fallback (when embedding model unavailable)
+        # 3. Basic keyword search fallback (no LLM)
         try:
             return self._search_db_articles(user_input)
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"DB search error: {e}")
             return ""
+
+    def _extract_search_terms_with_llm(self, query: str) -> list[str]:
+        """Use LLM to extract targeted legal search phrases from user question.
+
+        Cost: ~$0.001 per call (small prompt, short response).
+        Returns 3-6 Vietnamese search phrases optimized for SQL ilike matching.
+        """
+        messages = [
+            {"role": "system", "content": (
+                "Từ câu hỏi pháp lý, trích xuất 3-6 cụm từ tìm kiếm ngắn (2-5 từ) "
+                "để tìm điều luật liên quan trong cơ sở dữ liệu. "
+                "Ưu tiên cụm từ pháp lý chính xác. Trả về JSON array. CHỈ JSON."
+            )},
+            {"role": "user", "content": query}
+        ]
+        result = call_llm_json(messages, temperature=0.1, max_tokens=150)
+        if isinstance(result, list):
+            return [str(t).lower().strip() for t in result if isinstance(t, str) and len(t) > 1]
+        return []
 
     def _build_search_terms(self, query: str) -> list[str]:
         """Build Vietnamese n-gram search terms from query — NO LLM call.
@@ -899,27 +929,32 @@ Nếu không xác định được, trả về: none"""
             'để', 'mà', 'hay', 'hoặc', 'vì', 'sao', 'tôi', 'bạn',
         }
 
-        # Build n-grams (4, 3, 2 words) — keep ALL words including stop words
-        # This preserves phrases like "không có giấy tờ" (4-gram)
-        ngrams = []
+        # Build n-grams per length — ensure a MIX of term lengths
+        # Long queries would otherwise fill all slots with 4-grams,
+        # missing useful shorter terms like "thông báo", "thu hồi đất"
         seen = set()
+        by_length: dict[int, list[str]] = {4: [], 3: [], 2: []}
         for n in [4, 3, 2]:
             for i in range(len(words) - n + 1):
                 gram = " ".join(words[i:i + n])
-                # At least one word must be meaningful (not stop word)
                 has_meaningful = any(w not in stop_words for w in words[i:i + n])
                 if has_meaningful and gram not in seen:
                     seen.add(gram)
-                    ngrams.append(gram)
+                    by_length[n].append(gram)
 
-        # Deduplicate and take best terms (longer n-grams first = more specific)
-        return ngrams[:12]
+        # 3-grams = sweet spot (specific enough, good recall)
+        # Take ALL 3-grams, supplement with 2-grams and 4-grams
+        result = by_length[3] + by_length[2][:8] + by_length[4][:4]
+        return result[:20]
 
-    def _search_db_articles(self, query: str, limit: int = 20) -> str:
-        """Fast keyword search — batched queries (2 instead of 24).
+    def _search_db_articles(self, query: str, limit: int = 20, llm_terms: list[str] | None = None) -> str:
+        """Keyword search with optional LLM-generated terms.
 
         Uses Supabase or_() to combine all search terms into 2 queries:
         1 title query + 1 content query. Title matches score 3x.
+
+        Args:
+            llm_terms: If provided, uses these instead of n-gram terms.
         """
         settings = get_settings()
         if settings.db_mode != "supabase":
@@ -930,8 +965,8 @@ Nếu không xác định được, trả về: none"""
         db = get_database()
         client = db._read()
 
-        # Step 1: Build search terms (no LLM)
-        search_terms = self._build_search_terms(query)
+        # Step 1: Use LLM terms if provided, otherwise fall back to n-grams
+        search_terms = llm_terms if llm_terms else self._build_search_terms(query)
         if not search_terms:
             return ""
 
