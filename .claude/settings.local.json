@@ -118,7 +118,9 @@
       "Bash(pushd:*)",
       "Bash(popd:*)",
       "Bash(npx vite build:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git cherry-pick:*)",
+      "Bash(git stash:*)"
     ]
   }
 }

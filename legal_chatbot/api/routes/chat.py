@@ -1,9 +1,10 @@
 """Chat API routes"""
 
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from legal_chatbot.api.schemas import (
     ChatAPIResponse,
@@ -133,6 +134,106 @@ async def chat(request: ChatRequest):
         html_preview=response.html_preview,
         pdf_url=pdf_url,
     )
+
+
+@router.post("/api/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """SSE streaming chat — sends tokens as they're generated.
+
+    Events:
+      data: {"type":"session","session_id":"..."}
+      data: {"type":"token","text":"..."}
+      data: {"type":"done","message":"...","suggestions":[...]}
+    """
+    entry = await store.get_or_create(request.session_id)
+    service = entry.service
+    session = service.get_session()
+
+    # Record user message
+    session.messages.append({"role": "user", "content": request.message})
+
+    # Check for non-streaming flows (contract creation, greetings, etc.)
+    # These return immediately, not streamed
+    from legal_chatbot.utils.vietnamese import remove_diacritics
+    input_normalized = remove_diacritics(request.message.lower())
+
+    # Quick checks: greeting, contract flow, etc. → fall back to non-streaming
+    is_contract_flow = session.current_draft is not None
+    wants_contract = any(kw in input_normalized for kw in [
+        'tao hop dong', 'lap hop dong', 'soan hop dong',
+        'tao mau', 'viet hop dong', 'can hop dong',
+    ])
+
+    if is_contract_flow or wants_contract:
+        # Use non-streaming for contract interactions
+        try:
+            response = await service.chat(request.message)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Lỗi: {e}")
+
+        pdf_url = _pdf_path_to_url(response.pdf_path)
+        await store.persist_messages(
+            entry.session_id, request.message, response.message, pdf_url=pdf_url
+        )
+
+        async def non_stream():
+            yield f"data: {json.dumps({'type': 'session', 'session_id': entry.session_id})}\n\n"
+            yield f"data: {json.dumps({'type': 'token', 'text': response.message})}\n\n"
+            meta = {
+                "type": "done",
+                "message": response.message,
+                "action": response.action_taken,
+                "suggestions": _build_suggestions(
+                    response.action_taken, session.mode, False,
+                ),
+                "pdf_url": pdf_url,
+            }
+            yield f"data: {json.dumps(meta)}\n\n"
+
+        return StreamingResponse(non_stream(), media_type="text/event-stream")
+
+    # Streaming flow for legal questions
+    async def stream_response():
+        # Send session ID immediately
+        yield f"data: {json.dumps({'type': 'session', 'session_id': entry.session_id})}\n\n"
+
+        # Build context (DB search) — this is the ~2-3s part
+        try:
+            llm_messages = await service._build_llm_messages(request.message)
+        except Exception:
+            llm_messages = None
+
+        if not llm_messages:
+            # Fallback: no context found
+            llm_messages = [
+                {"role": "system", "content": service.SYSTEM_PROMPT},
+                {"role": "user", "content": request.message},
+            ]
+
+        # Stream LLM response token by token
+        full_text = ""
+        try:
+            async for chunk in service.stream_llm_response(llm_messages):
+                full_text += chunk
+                yield f"data: {json.dumps({'type': 'token', 'text': chunk})}\n\n"
+        except Exception as e:
+            full_text = f"Xin lỗi, đã xảy ra lỗi: {e}"
+            yield f"data: {json.dumps({'type': 'token', 'text': full_text})}\n\n"
+
+        # Save to session + DB
+        session.messages.append({"role": "assistant", "content": full_text})
+        await store.persist_messages(entry.session_id, request.message, full_text)
+
+        # Send done event with metadata
+        meta = {
+            "type": "done",
+            "message": full_text,
+            "action": None,
+            "suggestions": _build_suggestions(None, session.mode, False),
+        }
+        yield f"data: {json.dumps(meta)}\n\n"
+
+    return StreamingResponse(stream_response(), media_type="text/event-stream")
 
 
 # =========================================================

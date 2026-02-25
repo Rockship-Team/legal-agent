@@ -4,14 +4,15 @@ import json
 import logging
 from typing import Optional
 
-from anthropic import Anthropic
+from anthropic import Anthropic, AsyncAnthropic
 
 from legal_chatbot.utils.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Module-level singleton
+# Module-level singletons
 _client: Optional[Anthropic] = None
+_async_client: Optional[AsyncAnthropic] = None
 
 
 def get_client() -> Anthropic:
@@ -25,6 +26,19 @@ def get_client() -> Anthropic:
             )
         _client = Anthropic(api_key=settings.anthropic_api_key)
     return _client
+
+
+def get_async_client() -> AsyncAnthropic:
+    """Get or create async Anthropic client singleton."""
+    global _async_client
+    if _async_client is None:
+        settings = get_settings()
+        if not settings.anthropic_api_key:
+            raise RuntimeError(
+                "ANTHROPIC_API_KEY not set. Add it to your .env file."
+            )
+        _async_client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+    return _async_client
 
 
 def get_model() -> str:
@@ -80,6 +94,91 @@ def call_llm(
 
     response = client.messages.create(**kwargs)
     return response.content[0].text
+
+
+def call_llm_stream(
+    messages: list[dict],
+    temperature: float = 0.3,
+    max_tokens: int = 4096,
+    system: str = "",
+):
+    """Stream Anthropic Messages API — yields text chunks (synchronous).
+
+    Same interface as call_llm but returns a generator of text deltas.
+    NOTE: This is synchronous and blocks the event loop. Use
+    call_llm_stream_async() for FastAPI/async contexts.
+    """
+    client = get_client()
+    model = get_model()
+
+    if not system:
+        user_messages = []
+        for msg in messages:
+            if msg["role"] == "system":
+                system = msg["content"]
+            else:
+                user_messages.append(msg)
+    else:
+        user_messages = [m for m in messages if m["role"] != "system"]
+
+    if not user_messages:
+        user_messages = [{"role": "user", "content": ""}]
+
+    kwargs = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": user_messages,
+    }
+    if system:
+        kwargs["system"] = system
+    if temperature > 0:
+        kwargs["temperature"] = temperature
+
+    with client.messages.stream(**kwargs) as stream:
+        for text in stream.text_stream:
+            yield text
+
+
+async def call_llm_stream_async(
+    messages: list[dict],
+    temperature: float = 0.3,
+    max_tokens: int = 4096,
+    system: str = "",
+):
+    """Stream Anthropic Messages API — async generator yielding text chunks.
+
+    Uses AsyncAnthropic so it doesn't block the event loop.
+    Use this in FastAPI async generators for proper SSE streaming.
+    """
+    client = get_async_client()
+    model = get_model()
+
+    if not system:
+        user_messages = []
+        for msg in messages:
+            if msg["role"] == "system":
+                system = msg["content"]
+            else:
+                user_messages.append(msg)
+    else:
+        user_messages = [m for m in messages if m["role"] != "system"]
+
+    if not user_messages:
+        user_messages = [{"role": "user", "content": ""}]
+
+    kwargs = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": user_messages,
+    }
+    if system:
+        kwargs["system"] = system
+    if temperature > 0:
+        kwargs["temperature"] = temperature
+
+    async with client.messages.stream(**kwargs) as stream:
+        async for text in stream.text_stream:
+            yield text
 
 
 def call_llm_json(

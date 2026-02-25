@@ -14,7 +14,7 @@ from uuid import uuid4
 from pydantic import BaseModel
 
 from legal_chatbot.utils.config import get_settings
-from legal_chatbot.utils.llm import call_llm, call_llm_json
+from legal_chatbot.utils.llm import call_llm, call_llm_json, call_llm_stream_async
 from legal_chatbot.utils.vietnamese import remove_diacritics
 from legal_chatbot.services.chat import CATEGORY_KEYWORDS
 from legal_chatbot.services.research import ResearchService, ResearchResult
@@ -688,6 +688,42 @@ Hãy trả lời CHI TIẾT dựa trên các điều luật ở trên. Trích d�
 
         return result
 
+    async def _build_llm_messages(self, user_input: str) -> list[dict] | None:
+        """Build LLM messages with context for a legal question.
+
+        Returns messages list ready for LLM, or None if handled by other flow
+        (contract creation, greeting, etc.)
+        """
+        session = self.get_session()
+        context = await self._build_context_for_query(user_input, session)
+
+        messages = [{"role": "system", "content": self.SYSTEM_PROMPT}]
+
+        for msg in session.messages[-6:]:
+            if msg['role'] in ['user', 'assistant']:
+                messages.append({"role": msg['role'], "content": msg['content']})
+
+        if context:
+            user_content = f"""CÁC ĐIỀU LUẬT LIÊN QUAN (từ cơ sở dữ liệu pháp luật):
+
+{context}
+
+---
+
+CÂU HỎI CỦA NGƯỜI DÙNG:
+{user_input}
+
+Hãy trả lời CHI TIẾT dựa trên các điều luật ở trên. Trích dẫn cụ thể số Điều và tên văn bản."""
+        else:
+            user_content = user_input
+        messages.append({"role": "user", "content": user_content})
+        return messages
+
+    async def stream_llm_response(self, messages: list[dict]):
+        """Stream LLM response — async generator yielding text chunks."""
+        async for chunk in call_llm_stream_async(messages, temperature=0.7, max_tokens=4096):
+            yield chunk
+
     async def _detect_contract_type_with_llm(self, user_input: str) -> Optional[str]:
         """Use LLM to detect contract type from user input.
 
@@ -768,42 +804,52 @@ Nếu không xác định được, trả về: none"""
             print(f"DB search error: {e}")
             return ""
 
-    def _extract_search_terms(self, query: str) -> list[str]:
-        """Use Claude to extract precise Vietnamese legal search terms from query.
+    def _build_search_terms(self, query: str) -> list[str]:
+        """Build Vietnamese n-gram search terms from query — NO LLM call.
 
-        Returns 5-8 compound search terms optimized for SQL ilike search.
+        Generates compound terms (2-4 words) that preserve Vietnamese
+        phrasing like "giấy chứng nhận", "quyền sử dụng đất", "không có giấy tờ".
+
+        Stop words are kept INSIDE n-grams (for accurate phrase matching)
+        but filtered as standalone search terms.
         """
-        try:
-            result = self._call_llm(
-                [
-                    {"role": "system", "content": (
-                        "Bạn là chuyên gia pháp luật Việt Nam. "
-                        "Từ câu hỏi pháp lý, hãy trích xuất 5-8 CỤM TỪ KHÓA TIẾNG VIỆT "
-                        "chính xác nhất để tìm kiếm trong cơ sở dữ liệu điều luật.\n\n"
-                        "Yêu cầu:\n"
-                        "- Dùng cụm từ pháp lý chính xác (2-4 từ), KHÔNG dùng từ đơn\n"
-                        "- Bao gồm cả tên điều luật nếu biết (VD: 'Điều 138')\n"
-                        "- Ưu tiên thuật ngữ pháp lý chuyên ngành\n\n"
-                        "Trả về MỖI CỤM TỪ TRÊN MỘT DÒNG, không đánh số, không giải thích."
-                    )},
-                    {"role": "user", "content": query},
-                ],
-                temperature=0,
-                max_tokens=200,
-            )
-            terms = [line.strip().strip('-').strip() for line in result.strip().split('\n') if line.strip()]
-            return [t for t in terms if len(t) > 3][:8]
-        except Exception:
+        words = query.lower().split()
+        # Remove punctuation from words
+        words = [w.strip('.,?!;:()[]{}"\'-') for w in words if w.strip('.,?!;:()[]{}"\'-')]
+
+        if not words:
             return []
 
-    def _search_db_articles(self, query: str, limit: int = 20) -> str:
-        """LLM-powered keyword search with relevance ranking.
+        # Stop words — only used to filter STANDALONE terms, not inside n-grams
+        stop_words = {
+            'là', 'gì', 'của', 'và', 'trong', 'cho', 'như', 'thế', 'nào',
+            'có', 'không', 'được', 'phải', 'cần', 'bao', 'nhiều', 'một',
+            'các', 'những', 'này', 'đó', 'khi', 'nếu', 'thì', 'sẽ', 'đã',
+            'đang', 'từ', 'đến', 'với', 'tại', 'về', 'theo', 'bằng',
+            'để', 'mà', 'hay', 'hoặc', 'vì', 'sao', 'tôi', 'bạn',
+        }
 
-        Flow:
-        1. Claude extracts precise Vietnamese legal search terms
-        2. Search each term via SQL ilike (Vietnamese text with diacritics)
-        3. Rank articles by number of matching terms (relevance score)
-        4. Return top articles ordered by relevance, not article_number
+        # Build n-grams (4, 3, 2 words) — keep ALL words including stop words
+        # This preserves phrases like "không có giấy tờ" (4-gram)
+        ngrams = []
+        seen = set()
+        for n in [4, 3, 2]:
+            for i in range(len(words) - n + 1):
+                gram = " ".join(words[i:i + n])
+                # At least one word must be meaningful (not stop word)
+                has_meaningful = any(w not in stop_words for w in words[i:i + n])
+                if has_meaningful and gram not in seen:
+                    seen.add(gram)
+                    ngrams.append(gram)
+
+        # Deduplicate and take best terms (longer n-grams first = more specific)
+        return ngrams[:12]
+
+    def _search_db_articles(self, query: str, limit: int = 20) -> str:
+        """Fast keyword search — batched queries (2 instead of 24).
+
+        Uses Supabase or_() to combine all search terms into 2 queries:
+        1 title query + 1 content query. Title matches score 3x.
         """
         settings = get_settings()
         if settings.db_mode != "supabase":
@@ -814,90 +860,76 @@ Nếu không xác định được, trả về: none"""
         db = get_database()
         client = db._read()
 
-        # Step 1: LLM extracts precise search terms
-        search_terms = self._extract_search_terms(query)
-
-        # Fallback: manual keyword extraction if LLM fails
-        if not search_terms:
-            stop_words = {
-                'la', 'gi', 'cua', 'va', 'trong', 'cho', 'nhu', 'the', 'nao',
-                'co', 'khong', 'duoc', 'phai', 'can', 'bao', 'nhieu', 'mot',
-                'cac', 'nhung', 'nay', 'do', 'khi', 'neu', 'thi', 'se', 'da',
-                'dang', 'tu', 'den', 'voi', 'tai', 've', 'theo', 'bang',
-                'de', 'ma', 'hay', 'hoac', 'vi', 'sao',
-            }
-            vn_words = query.lower().split()
-            ascii_words = remove_diacritics(query.lower()).split()
-            filtered = [
-                vn_words[i] for i in range(len(vn_words))
-                if len(ascii_words[i]) > 2 and ascii_words[i] not in stop_words
-            ]
-            # Build bigrams
-            bigrams = [f"{filtered[i]} {filtered[i+1]}" for i in range(len(filtered)-1)]
-            search_terms = bigrams[:4] + filtered[:4]
-
+        # Step 1: Build search terms (no LLM)
+        search_terms = self._build_search_terms(query)
         if not search_terms:
             return ""
 
-        # Step 2: Search each term — title matches score 3x, content matches 1x
-        # This ensures articles whose TITLE matches (e.g. Điều 138: "...không có giấy tờ...")
-        # rank higher than articles that merely mention the term in body text.
+        # Step 2: Batch into 2 queries using or_()
         article_scores: dict[tuple, dict] = {}
 
-        for term in search_terms:
-            # Search TITLE first (high relevance — article is ABOUT this topic)
+        # Query 1: Title search (all terms combined) — score 3x
+        title_or = ",".join(f"title.ilike.%{t}%" for t in search_terms)
+        try:
             title_result = (
                 client.table("articles")
                 .select("article_number, title, content, legal_documents(title, document_number)")
-                .ilike("title", f"%{term}%")
-                .limit(20)
+                .or_(title_or)
+                .limit(100)
                 .execute()
             )
             for a in title_result.data or []:
                 doc_info = a.get("legal_documents") or {}
                 art_key = (a.get("article_number"), doc_info.get("title", ""))
                 if art_key not in article_scores:
-                    article_scores[art_key] = {
-                        "data": a, "doc_info": doc_info, "score": 0,
-                    }
-                article_scores[art_key]["score"] += 3  # title match = 3 points
+                    article_scores[art_key] = {"data": a, "doc_info": doc_info, "score": 0}
+                # Score by how many terms match the title
+                art_title = (a.get("title") or "").lower()
+                for t in search_terms:
+                    if t in art_title:
+                        article_scores[art_key]["score"] += 3
+        except Exception:
+            pass
 
-            # Search CONTENT (broader — article mentions this topic)
+        # Query 2: Content search (all terms combined) — score 1x
+        content_or = ",".join(f"content.ilike.%{t}%" for t in search_terms[:8])
+        try:
             content_result = (
                 client.table("articles")
                 .select("article_number, title, content, legal_documents(title, document_number)")
-                .ilike("content", f"%{term}%")
-                .limit(50)
+                .or_(content_or)
+                .limit(200)
                 .execute()
             )
             for a in content_result.data or []:
                 doc_info = a.get("legal_documents") or {}
                 art_key = (a.get("article_number"), doc_info.get("title", ""))
                 if art_key not in article_scores:
-                    article_scores[art_key] = {
-                        "data": a, "doc_info": doc_info, "score": 0,
-                    }
-                article_scores[art_key]["score"] += 1  # content match = 1 point
+                    article_scores[art_key] = {"data": a, "doc_info": doc_info, "score": 0}
+                # Score by how many terms match the content
+                art_content = (a.get("content") or "").lower()
+                for t in search_terms:
+                    if t in art_content:
+                        article_scores[art_key]["score"] += 1
+        except Exception:
+            pass
 
         if not article_scores:
             return ""
 
-        # Step 3: Pre-rank by score (title match 3x + content match 1x), top 30
-        pre_ranked = sorted(
+        # Step 3: Rank by score DESC
+        ranked = sorted(
             article_scores.values(),
             key=lambda x: x["score"],
             reverse=True,
-        )[:30]
+        )[:limit]
 
-        # Step 4: LLM re-ranking — Claude picks the most relevant articles
-        ranked = self._rerank_articles(query, pre_ranked, limit)
-
-        # Step 5: Format results (full content, not truncated)
+        # Step 4: Format results
         results = []
         for item in ranked:
             a = item["data"]
             doc_info = item["doc_info"]
-            content = a.get("content", "")[:1200]
+            content = a.get("content", "")
             header = f"Điều {a.get('article_number', '?')}"
             title = a.get("title", "")
             if title:
@@ -906,71 +938,6 @@ Nếu không xác định được, trả về: none"""
             results.append(f"**{header}** ({doc_title})\n{content}")
 
         return "\n\n---\n\n".join(results)
-
-    def _rerank_articles(self, query: str, candidates: list[dict], limit: int) -> list[dict]:
-        """Use Claude to re-rank candidate articles by relevance to the query.
-
-        Takes top 30 candidates from keyword search, asks Claude to pick
-        the most relevant ones. This compensates for keyword search's
-        inability to understand semantic meaning.
-        """
-        if len(candidates) <= limit:
-            return candidates
-
-        # Build compact summary for Claude to rank
-        summaries = []
-        for i, item in enumerate(candidates):
-            a = item["data"]
-            doc_info = item["doc_info"]
-            title = a.get("title", "")
-            content = a.get("content", "")[:200]
-            doc_title = doc_info.get("title", "")
-            summaries.append(
-                f"[{i}] Điều {a.get('article_number', '?')}"
-                f"{f': {title}' if title else ''}"
-                f" ({doc_title}) — {content}"
-            )
-
-        try:
-            result = self._call_llm(
-                [
-                    {"role": "system", "content": (
-                        "Bạn là chuyên gia pháp luật Việt Nam. "
-                        "Từ danh sách điều luật dưới đây, chọn ra ĐÚNG những điều "
-                        "LIÊN QUAN TRỰC TIẾP nhất đến câu hỏi.\n\n"
-                        "Trả về CHỈ các số index [0], [1], ... cách nhau bằng dấu phẩy.\n"
-                        "Ưu tiên điều luật QUY ĐỊNH CỤ THỂ về vấn đề, "
-                        "KHÔNG ưu tiên điều định nghĩa chung."
-                    )},
-                    {"role": "user", "content": (
-                        f"CÂU HỎI: {query}\n\n"
-                        f"DANH SÁCH ĐIỀU LUẬT:\n" + "\n".join(summaries)
-                    )},
-                ],
-                temperature=0,
-                max_tokens=200,
-            )
-
-            # Parse indices from response like "0, 3, 5, 12, 7"
-            import re
-            indices = [int(x) for x in re.findall(r'\d+', result)]
-            # Filter valid indices and deduplicate while preserving order
-            seen = set()
-            valid = []
-            for idx in indices:
-                if idx < len(candidates) and idx not in seen:
-                    seen.add(idx)
-                    valid.append(idx)
-                    if len(valid) >= limit:
-                        break
-
-            if valid:
-                return [candidates[i] for i in valid]
-        except Exception:
-            pass
-
-        # Fallback: return by match_count
-        return candidates[:limit]
 
     def _get_flexible_system_prompt(self, session: ChatSession) -> str:
         """Get flexible system prompt that handles any legal topic"""
