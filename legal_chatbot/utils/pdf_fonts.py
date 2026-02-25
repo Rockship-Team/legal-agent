@@ -1,7 +1,6 @@
 """Vietnamese font support for ReportLab PDF generation"""
 
 import os
-from pathlib import Path
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
@@ -44,6 +43,18 @@ def register_vietnamese_fonts():
                 print(f"Warning: Could not register font {font_name}: {e}")
 
     if registered:
+        # Register font family so ReportLab can resolve bold/italic variants
+        has_normal = DEFAULT_FONT in registered
+        has_bold = DEFAULT_FONT_BOLD in registered
+        has_italic = DEFAULT_FONT_ITALIC in registered
+        if has_normal:
+            pdfmetrics.registerFontFamily(
+                'Times-Vietnamese',
+                normal='Times-Vietnamese',
+                bold='Times-Vietnamese-Bold' if has_bold else 'Times-Vietnamese',
+                italic='Times-Vietnamese-Italic' if has_italic else 'Times-Vietnamese',
+                boldItalic='Times-Vietnamese-Bold' if has_bold else 'Times-Vietnamese',
+            )
         _fonts_registered = True
         return True
 
