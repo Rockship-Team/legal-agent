@@ -858,20 +858,20 @@ Nếu không xác định được, trả về: none"""
         if not is_legal_question:
             return ""
 
-        # Vector search disabled — testing LLM-powered keyword search
-        # To re-enable vector search, uncomment below:
-        # try:
-        #     result = await self.research_service.research(user_input, max_sources=20)
-        #     if result.has_data and result.raw_content:
-        #         return result.raw_content
-        # except Exception:
-        #     pass
+        # 1. Vector search (best quality — semantic matching)
+        try:
+            result = await self.research_service.research(user_input, max_sources=10)
+            if result.has_data and result.raw_content:
+                return result.raw_content
+        except Exception:
+            pass
 
-        # LLM-powered keyword search with relevance ranking
+        # 2. Keyword search fallback (when embedding model unavailable)
         try:
             return self._search_db_articles(user_input)
         except Exception as e:
-            print(f"DB search error: {e}")
+            import logging
+            logging.getLogger(__name__).warning(f"DB search error: {e}")
             return ""
 
     def _build_search_terms(self, query: str) -> list[str]:
