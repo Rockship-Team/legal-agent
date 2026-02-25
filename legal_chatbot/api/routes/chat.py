@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from legal_chatbot.api.schemas import (
     ChatAPIResponse,
@@ -84,15 +84,18 @@ def _build_suggestions(
 
 
 def _pdf_path_to_url(pdf_path: str | None) -> str | None:
-    """Convert PDF path to download URL.
+    """Convert PDF path/URL to /api/files/{filename} download URL.
 
-    If pdf_path is already a full URL (Supabase signed URL), return as-is.
-    Otherwise convert local path to /api/files/{filename} for local fallback.
+    Always routes through our proxy endpoint which generates fresh
+    signed URLs on demand — avoids Supabase JWT expiration issues.
     """
     if not pdf_path:
         return None
     if pdf_path.startswith("https://") or pdf_path.startswith("http://"):
-        return pdf_path
+        # Extract filename from signed URL (path before query params)
+        url_path = pdf_path.split("?")[0]
+        filename = url_path.split("/")[-1]
+        return f"/api/files/{filename}"
     filename = Path(pdf_path).name
     return f"/api/files/{filename}"
 
@@ -149,23 +152,11 @@ async def chat_stream(request: ChatRequest):
     service = entry.service
     session = service.get_session()
 
-    # Record user message
-    session.messages.append({"role": "user", "content": request.message})
+    # Let the service decide: stream (legal Q&A) vs non-stream (contract, commands)
+    use_streaming = service.should_stream(request.message)
 
-    # Check for non-streaming flows (contract creation, greetings, etc.)
-    # These return immediately, not streamed
-    from legal_chatbot.utils.vietnamese import remove_diacritics
-    input_normalized = remove_diacritics(request.message.lower())
-
-    # Quick checks: greeting, contract flow, etc. → fall back to non-streaming
-    is_contract_flow = session.current_draft is not None
-    wants_contract = any(kw in input_normalized for kw in [
-        'tao hop dong', 'lap hop dong', 'soan hop dong',
-        'tao mau', 'viet hop dong', 'can hop dong',
-    ])
-
-    if is_contract_flow or wants_contract:
-        # Use non-streaming for contract interactions
+    if not use_streaming:
+        # Use service.chat() for contract interactions (handles all routing internally)
         try:
             response = await service.chat(request.message)
         except Exception as e:
@@ -176,6 +167,15 @@ async def chat_stream(request: ChatRequest):
             entry.session_id, request.message, response.message, pdf_url=pdf_url
         )
 
+        # Get available contract types for dynamic suggestions
+        available_types = None
+        if response.action_taken == "ask_contract_type":
+            available_types = service._get_available_contract_types()
+
+        has_draft = session.current_draft is not None and session.current_draft.state == "ready"
+
+        session_info = _build_session_info(entry).model_dump()
+
         async def non_stream():
             yield f"data: {json.dumps({'type': 'session', 'session_id': entry.session_id})}\n\n"
             yield f"data: {json.dumps({'type': 'token', 'text': response.message})}\n\n"
@@ -183,8 +183,10 @@ async def chat_stream(request: ChatRequest):
                 "type": "done",
                 "message": response.message,
                 "action": response.action_taken,
+                "session_info": session_info,
                 "suggestions": _build_suggestions(
-                    response.action_taken, session.mode, False,
+                    response.action_taken, session.mode, has_draft,
+                    available_types=available_types,
                 ),
                 "pdf_url": pdf_url,
             }
@@ -193,6 +195,9 @@ async def chat_stream(request: ChatRequest):
         return StreamingResponse(non_stream(), media_type="text/event-stream")
 
     # Streaming flow for legal questions
+    # Record user message (only for streaming path — service.chat() records its own)
+    session.messages.append({"role": "user", "content": request.message})
+
     async def stream_response():
         # Send session ID immediately
         yield f"data: {json.dumps({'type': 'session', 'session_id': entry.session_id})}\n\n"
@@ -229,6 +234,7 @@ async def chat_stream(request: ChatRequest):
             "type": "done",
             "message": full_text,
             "action": None,
+            "session_info": _build_session_info(entry).model_dump(),
             "suggestions": _build_suggestions(None, session.mode, False),
         }
         yield f"data: {json.dumps(meta)}\n\n"
@@ -276,7 +282,7 @@ async def get_session_messages(session_id: str):
                 role=m["role"],
                 content=m["content"],
                 created_at=m.get("created_at"),
-                pdf_url=(m.get("metadata") or {}).get("pdf_url"),
+                pdf_url=_pdf_path_to_url((m.get("metadata") or {}).get("pdf_url")),
             )
             for m in messages
         ]
@@ -316,27 +322,53 @@ async def delete_session(session_id: str):
 
 @router.get("/api/files/{filename}")
 async def download_file(filename: str):
-    """Download a generated file (PDF or JSON) from data/contracts/"""
+    """Download a generated file (PDF or JSON).
+
+    Tries local data/contracts/ first, then Supabase Storage.
+    For Supabase, generates a fresh signed URL (avoids JWT expiration).
+    """
     # Sanitize filename — prevent path traversal
     safe_name = Path(filename).name
     file_path = CONTRACTS_DIR / safe_name
 
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File không tồn tại")
+    # Try local file first
+    if file_path.exists():
+        suffix = file_path.suffix.lower()
+        media_types = {
+            '.pdf': 'application/pdf',
+            '.json': 'application/json',
+        }
+        media_type = media_types.get(suffix, 'application/octet-stream')
+        return FileResponse(
+            path=str(file_path),
+            filename=safe_name,
+            media_type=media_type,
+        )
 
-    # Determine media type
-    suffix = file_path.suffix.lower()
-    media_types = {
-        '.pdf': 'application/pdf',
-        '.json': 'application/json',
-    }
-    media_type = media_types.get(suffix, 'application/octet-stream')
+    # Fallback: Supabase Storage — download and serve directly
+    if store.db:
+        try:
+            client = store.db._write()  # Service role key for storage access
+            file_bytes = client.storage.from_("legal-contracts").download(safe_name)
+            if file_bytes:
+                suffix = Path(safe_name).suffix.lower()
+                media_types = {
+                    '.pdf': 'application/pdf',
+                    '.json': 'application/json',
+                }
+                media_type = media_types.get(suffix, 'application/octet-stream')
+                return Response(
+                    content=file_bytes,
+                    media_type=media_type,
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{safe_name}"',
+                    },
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Supabase Storage download failed for '{safe_name}': {e}")
 
-    return FileResponse(
-        path=str(file_path),
-        filename=safe_name,
-        media_type=media_type,
-    )
+    raise HTTPException(status_code=404, detail="File không tồn tại")
 
 
 @router.get("/api/health", response_model=HealthResponse)

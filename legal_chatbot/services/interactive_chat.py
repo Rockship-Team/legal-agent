@@ -19,7 +19,6 @@ from legal_chatbot.utils.vietnamese import remove_diacritics
 from legal_chatbot.services.chat import CATEGORY_KEYWORDS
 from legal_chatbot.services.research import ResearchService, ResearchResult
 from legal_chatbot.services.dynamic_template import DynamicTemplate, DynamicField
-from legal_chatbot.services.contract import INPUT_TO_TYPE, SLUG_ALIAS
 from legal_chatbot.services.generator import GeneratorService
 from legal_chatbot.services.pdf_generator import UniversalPDFGenerator
 
@@ -126,9 +125,9 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
             "Chào! Hôm nay bạn cần hỗ trợ gì nè?",
         ],
         'contract_start': [
-            "OK, mình sẽ giúp bạn làm hợp đồng {type}. Để bắt đầu, cho mình hỏi nhé:",
-            "Được rồi, làm hợp đồng {type} ha. Mình cần hỏi bạn vài thông tin:",
-            "Hợp đồng {type} nhé! Để mình hỏi từng cái một cho dễ:",
+            "OK, mình sẽ giúp bạn làm {type}. Để bắt đầu, cho mình hỏi nhé:",
+            "Được rồi, làm {type} ha. Mình cần hỏi bạn vài thông tin:",
+            "{type} nhé! Để mình hỏi từng cái một cho dễ:",
         ],
         'field_ask': [
             "{label} là gì?",
@@ -207,24 +206,37 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
 
         return self._available_types_cache
 
-    def _resolve_contract_type(self, input_normalized: str) -> Optional[str]:
-        """Resolve normalized user input to a Vietnamese DB contract_type slug.
+    async def _resolve_contract_type(self, input_text: str) -> Optional[str]:
+        """Resolve user input to a Vietnamese DB contract_type slug.
 
-        Uses INPUT_TO_TYPE (Vietnamese phrases) and SLUG_ALIAS (English slugs).
-        Returns None if no match found.
+        Fully DB-driven — no hardcoded mappings. When new templates are added
+        to Supabase, they are automatically available without code changes.
+
+        Resolution order:
+          1. DB display_name substring match (fast, no LLM)
+          2. Direct slug match (for already-resolved slugs)
+          3. LLM classification (handles ambiguous/short input)
         """
         from legal_chatbot.utils.vietnamese import remove_diacritics as _rd
 
-        # Check English slug aliases first
-        for en_slug, vn_slug in SLUG_ALIAS.items():
-            if en_slug in input_normalized:
-                return vn_slug
+        input_normalized = _rd(input_text.lower().strip())
+        available = self._get_available_contract_types()
 
-        # Check Vietnamese phrase mappings (INPUT_TO_TYPE uses Vietnamese with diacritics)
-        for phrase, slug in INPUT_TO_TYPE.items():
-            phrase_normalized = _rd(phrase.lower())
-            if phrase_normalized in input_normalized or input_normalized in phrase_normalized:
-                return slug
+        # 1. Substring match against DB display_names
+        for t in available:
+            display_normalized = _rd(t["name"].lower())
+            if display_normalized in input_normalized or input_normalized in display_normalized:
+                return t["type"]
+
+        # 2. Check if input is already a valid DB slug (e.g. "cho_thue_dat")
+        slug_candidate = input_normalized.replace(" ", "_")
+        for t in available:
+            if t["type"] == slug_candidate:
+                return t["type"]
+
+        # 3. LLM fallback — handles short/ambiguous input like "chuyển nhượng đất"
+        if available:
+            return await self._detect_contract_type_with_llm(input_text)
 
         return None
 
@@ -298,6 +310,45 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
             self.start_session()
         return self.session
 
+    def should_stream(self, user_input: str) -> bool:
+        """Check if this input should use streaming (legal Q&A) vs non-streaming (contract flow).
+
+        Mirrors the routing logic of chat() without actually processing.
+        Returns True only when the input would go to _handle_natural_input()
+        and is NOT a contract-related interaction.
+        """
+        session = self.get_session()
+        input_normalized = remove_diacritics(user_input.lower().strip())
+
+        # In contract creation mode → non-streaming
+        if session.mode == 'contract_creation' and session.current_draft:
+            return False
+
+        # Check if user is answering contract type question
+        if session.messages:
+            last_assistant_msgs = [m for m in session.messages if m.get('role') == 'assistant']
+            if last_assistant_msgs:
+                last_content = last_assistant_msgs[-1].get('content', '')
+                if 'loai hop dong' in remove_diacritics(last_content.lower()):
+                    return False
+
+        # Check if command would be parsed (contract creation, preview, export, etc.)
+        command = self._parse_command(user_input)
+        if command:
+            return False
+
+        # Check if _handle_natural_input would detect contract creation intent
+        wants_contract = any(kw in input_normalized for kw in [
+            'tao hop dong', 'lap hop dong', 'soan hop dong',
+            'tao mau', 'viet hop dong', 'can hop dong',
+            'muon tao hop dong', 'giup tao hop dong',
+        ])
+        if wants_contract:
+            return False
+
+        # Everything else → legal Q&A → stream
+        return True
+
     async def chat(self, user_input: str) -> InteractiveChatResponse:
         """Process user input and return response"""
         session = self.get_session()
@@ -315,10 +366,28 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
         # Check if user is answering contract type question
         last_action = session.messages[-2].get('content', '') if len(session.messages) >= 2 else ''
         if 'loai hop dong' in remove_diacritics(last_action.lower()):
-            # Try to resolve contract type from user input using DB mappings
-            resolved_slug = self._resolve_contract_type(input_normalized)
+            # Resolve contract type from user input (DB + LLM, fully dynamic)
+            resolved_slug = await self._resolve_contract_type(user_input)
             if resolved_slug:
                 response = await self._create_contract(resolved_slug)
+                session.messages.append({
+                    "role": "assistant",
+                    "content": response.message,
+                    "timestamp": datetime.now().isoformat()
+                })
+                return response
+            else:
+                # LLM couldn't match either — show available types
+                available = self._get_available_contract_types()
+                if available:
+                    type_list = "\n".join(f"• {t['name']}" for t in available)
+                    msg = f"Mình chưa nhận diện được loại hợp đồng này. Hiện tại hỗ trợ:\n\n{type_list}\n\nBạn muốn tạo loại nào?"
+                else:
+                    msg = "Hiện tại chưa có mẫu hợp đồng nào trong hệ thống."
+                response = InteractiveChatResponse(
+                    message=msg,
+                    action_taken="ask_contract_type"
+                )
                 session.messages.append({
                     "role": "assistant",
                     "content": response.message,
@@ -330,7 +399,7 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
         if session.mode == 'contract_creation' and session.current_draft:
             if session.current_draft.state == 'collecting':
                 # Check for skip/cancel commands first
-                if input_normalized in ['huy', 'cancel', 'thoat', 'bo qua']:
+                if any(kw in input_normalized for kw in ['huy', 'cancel', 'thoat', 'bo qua']):
                     session.mode = 'normal'
                     session.current_draft = None
                     response = InteractiveChatResponse(
@@ -451,9 +520,14 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
             )
         except Exception as e:
             import logging
-            logging.getLogger(__name__).error(f"Auto PDF generation failed: {e}")
+            import traceback
+            logging.getLogger(__name__).error(
+                f"Auto PDF generation failed: {e}\n{traceback.format_exc()}"
+            )
+            # Still mark as ready so user can retry with "xuất pdf"
+            draft.state = 'ready'
             return InteractiveChatResponse(
-                message=self._random_response('contract_ready'),
+                message=f"{self._random_response('contract_ready')}\n\n⚠️ Tạo PDF tự động thất bại. Bạn có thể thử lại bằng cách nói 'xuất pdf'.",
                 contract_draft=draft,
                 action_taken="contract_ready"
             )
@@ -758,10 +832,6 @@ Nếu không xác định được, trả về: none"""
 
         if result in valid_slugs:
             return result
-
-        # Try resolving via SLUG_ALIAS (in case LLM returns English slug)
-        if result in SLUG_ALIAS:
-            return SLUG_ALIAS[result]
 
         return None
 
@@ -1111,13 +1181,10 @@ Khi người dùng muốn xem hợp đồng, hãy hướng dẫn họ nói 'xem 
         """
         session = self.get_session()
 
-        # Resolve to Vietnamese DB slug
-        resolved_slug = self._resolve_contract_type(
-            remove_diacritics(contract_type.lower().strip())
-        )
+        # Resolve to Vietnamese DB slug (DB + LLM, fully dynamic)
+        resolved_slug = await self._resolve_contract_type(contract_type)
         if not resolved_slug:
-            # Try direct slug (already a valid DB slug)
-            resolved_slug = contract_type.lower().strip().replace(" ", "_")
+            raise ValueError(f"Không nhận diện được loại hợp đồng: {contract_type}")
 
         try:
             # Load template from Supabase (no hardcoded fallback)
@@ -1574,14 +1641,19 @@ Trả về JSON array (9 articles). CHỈ JSON, không có text giải thích.""
         return []
 
     def _upload_to_supabase_storage(self, filename: str, content: bytes, content_type: str) -> Optional[str]:
-        """Upload file to Supabase Storage, return signed URL or None on failure."""
+        """Upload file to Supabase Storage, return filename (not signed URL).
+
+        Returns just the filename so it can be served via /api/files/{filename}
+        which generates fresh signed URLs on demand (never expires).
+        """
         settings = get_settings()
         if settings.db_mode != "supabase":
             return None
         try:
             from legal_chatbot.db.supabase import get_database
             db = get_database()
-            return db.upload_contract_file(filename, content, content_type)
+            db.upload_contract_file(filename, content, content_type)
+            return filename  # Return filename, not signed URL
         except Exception as e:
             print(f"Supabase Storage upload failed: {e}")
             return None
