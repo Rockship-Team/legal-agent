@@ -399,7 +399,8 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
         if session.mode == 'contract_creation' and session.current_draft:
             if session.current_draft.state == 'collecting':
                 # Check for skip/cancel commands first
-                if any(kw in input_normalized for kw in ['huy', 'cancel', 'thoat', 'bo qua']):
+                _cancel_phrases = {'huy', 'huy hop dong', 'huy bo', 'cancel', 'thoat', 'bo qua'}
+                if input_normalized in _cancel_phrases:
                     session.mode = 'normal'
                     session.current_draft = None
                     response = InteractiveChatResponse(
