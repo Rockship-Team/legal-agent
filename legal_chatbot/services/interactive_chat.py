@@ -197,6 +197,7 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
         self._research_service = None  # lazy-loaded (needs embedding model)
         self._db = None  # lazy-loaded
         self._available_types_cache = None  # cached from DB
+        self._categories_cache = None  # cached category stats
         self.pdf_generator = GeneratorService()
         self.session: Optional[ChatSession] = None
         self.api_mode = api_mode
@@ -215,6 +216,48 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
         if self._research_service is None:
             self._research_service = ResearchService()
         return self._research_service
+
+    def _get_available_categories(self) -> list[dict]:
+        """Get categories that have actual data in DB (cached)."""
+        if self._categories_cache is not None:
+            return self._categories_cache
+
+        try:
+            all_cats = self.db.get_all_categories_with_stats()
+            self._categories_cache = [
+                {
+                    "name": c["name"],
+                    "display_name": c.get("display_name", c["name"]),
+                    "article_count": c.get("article_count", 0),
+                }
+                for c in all_cats
+                if c.get("article_count", 0) > 0
+            ]
+        except Exception:
+            self._categories_cache = []
+
+        return self._categories_cache
+
+    def _build_system_prompt(self) -> str:
+        """Build system prompt with actual available data from DB."""
+        categories = self._get_available_categories()
+        contracts = self._get_available_contract_types()
+
+        if categories:
+            cat_list = ", ".join(
+                f"{c['display_name']} ({c['article_count']} điều)"
+                for c in categories
+            )
+            data_section = f"\nDỮ LIỆU HIỆN CÓ: {cat_list}."
+            data_section += "\nKhi chào hỏi hoặc giới thiệu, CHỈ liệt kê các lĩnh vực có trong dữ liệu trên. KHÔNG liệt kê lĩnh vực không có dữ liệu."
+        else:
+            data_section = "\nDỮ LIỆU HIỆN CÓ: Chưa có dữ liệu nào. Thông báo cho người dùng biết hệ thống đang được cập nhật."
+
+        if contracts:
+            contract_list = ", ".join(c["name"] for c in contracts)
+            data_section += f"\nHỢP ĐỒNG HỖ TRỢ: {contract_list}."
+
+        return self.SYSTEM_PROMPT + data_section
 
     def _get_available_contract_types(self) -> list[dict]:
         """Get available contract types from DB (cached).
@@ -330,6 +373,49 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
         responses = self.HUMAN_RESPONSES.get(key, [key])
         response = random.choice(responses)
         return response.format(**kwargs) if kwargs else response
+
+    def _validate_field_input(self, field: DynamicField, value: str) -> Optional[str]:
+        """Validate user input for a contract field using LLM.
+
+        Uses LLM to understand the field semantics and validate accordingly.
+        Works for any contract type across any legal domain.
+        Returns None if valid, or a Vietnamese error message if invalid.
+        """
+        if not value or not value.strip():
+            return f"Vui lòng nhập {field.label.lower()}."
+
+        result = call_llm_json(
+            messages=[{"role": "user", "content": (
+                f"Kiểm tra giá trị nhập cho trường trong hợp đồng pháp lý Việt Nam.\n\n"
+                f"Tên trường: {field.name}\n"
+                f"Nhãn: {field.label}\n"
+                f"Mô tả: {field.description or 'Không có'}\n"
+                f"Giá trị nhập: {value}\n\n"
+                f"Trả về JSON:\n"
+                f'{{"valid": true/false, "error": "câu thông báo lỗi bằng tiếng Việt nếu không hợp lệ, kèm gợi ý định dạng đúng"}}\n\n'
+                f"Quy tắc kiểm tra:\n"
+                f"- Ngày tháng → DD/MM/YYYY, kiểm tra ngày/tháng/năm hợp lệ\n"
+                f"- Số điện thoại VN → 10-11 số, bắt đầu bằng 0\n"
+                f"- CCCD → 12 số, CMND → 9 số\n"
+                f"- Họ tên → không chỉ toàn số, ít nhất 2 từ\n"
+                f"- Địa chỉ → đủ chi tiết (không chỉ vài ký tự)\n"
+                f"- Số tiền → số dương\n"
+                f"- Diện tích → số dương\n"
+                f"- Email → đúng format\n"
+                f"- Mã số thuế → 10 hoặc 13 số\n"
+                f"- Các trường khác → dùng common sense, chỉ từ chối khi RÕ RÀNG vô nghĩa\n"
+                f"- LINH HOẠT: chấp nhận các biến thể hợp lý (vd: '15/3/1990' hay '15-03-1990' đều OK)\n"
+                f"- CHỈ từ chối khi giá trị rõ ràng sai hoặc vô nghĩa cho trường đó"
+            )}],
+            temperature=0.0,
+            max_tokens=200,
+            system="Bạn là validator cho form hợp đồng pháp lý VN. Trả về JSON duy nhất, không giải thích thêm.",
+        )
+
+        if result and not result.get("valid", True):
+            return f"❌ {result.get('error', f'{field.label} không hợp lệ. Vui lòng nhập lại.')}"
+
+        return None
 
     def start_session(self) -> ChatSession:
         """Start a new chat session"""
@@ -489,6 +575,15 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
 
         if draft.current_field_index < len(required_fields):
             current_field = required_fields[draft.current_field_index]
+
+            # Validate the input before accepting
+            validation_error = self._validate_field_input(current_field, user_input.strip())
+            if validation_error:
+                return InteractiveChatResponse(
+                    message=validation_error,
+                    contract_draft=draft,
+                    action_taken="field_validation_error"
+                )
 
             # Save the answer
             draft.field_values[current_field.name] = user_input.strip()
@@ -760,7 +855,7 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
 
         # Generate response with LLM - using human-like prompt
         messages = [
-            {"role": "system", "content": self.SYSTEM_PROMPT}
+            {"role": "system", "content": self._build_system_prompt()}
         ]
 
         # Add conversation history (last 6 messages for context)
@@ -804,7 +899,7 @@ Hãy trả lời CHI TIẾT dựa trên các điều luật ở trên. Trích d�
         session = self.get_session()
         context = await self._build_context_for_query(user_input, session)
 
-        messages = [{"role": "system", "content": self.SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": self._build_system_prompt()}]
 
         for msg in session.messages[-6:]:
             if msg['role'] in ['user', 'assistant']:
@@ -1205,7 +1300,7 @@ Hãy trích xuất thông tin và trả về JSON."""
 
     def _get_enhanced_system_prompt(self, session: ChatSession) -> str:
         """Get enhanced system prompt based on session state"""
-        base_prompt = self.SYSTEM_PROMPT
+        base_prompt = self._build_system_prompt()
 
         if session.current_draft:
             draft = session.current_draft
