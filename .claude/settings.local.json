@@ -120,7 +120,8 @@
       "Bash(npx vite build:*)",
       "Bash(git commit:*)",
       "Bash(git cherry-pick:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(npm run build)"
     ]
   }
 }
