@@ -375,46 +375,9 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
         return response.format(**kwargs) if kwargs else response
 
     def _validate_field_input(self, field: DynamicField, value: str) -> Optional[str]:
-        """Validate user input for a contract field using LLM.
-
-        Uses LLM to understand the field semantics and validate accordingly.
-        Works for any contract type across any legal domain.
-        Returns None if valid, or a Vietnamese error message if invalid.
-        """
+        """Validate user input for a contract field — basic check only."""
         if not value or not value.strip():
             return f"Vui lòng nhập {field.label.lower()}."
-
-        result = call_llm_json(
-            messages=[{"role": "user", "content": (
-                f"Kiểm tra giá trị nhập cho trường trong hợp đồng pháp lý Việt Nam.\n\n"
-                f"Tên trường: {field.name}\n"
-                f"Nhãn: {field.label}\n"
-                f"Mô tả: {field.description or 'Không có'}\n"
-                f"Giá trị nhập: {value}\n\n"
-                f"Trả về JSON:\n"
-                f'{{"valid": true/false, "error": "câu thông báo lỗi bằng tiếng Việt nếu không hợp lệ, kèm gợi ý định dạng đúng"}}\n\n'
-                f"Quy tắc kiểm tra:\n"
-                f"- Ngày tháng → DD/MM/YYYY, kiểm tra ngày/tháng/năm hợp lệ\n"
-                f"- Số điện thoại VN → 10-11 số, bắt đầu bằng 0\n"
-                f"- CCCD → 12 số, CMND → 9 số\n"
-                f"- Họ tên → không chỉ toàn số, ít nhất 2 từ\n"
-                f"- Địa chỉ → đủ chi tiết (không chỉ vài ký tự)\n"
-                f"- Số tiền → số dương\n"
-                f"- Diện tích → số dương\n"
-                f"- Email → đúng format\n"
-                f"- Mã số thuế → 10 hoặc 13 số\n"
-                f"- Các trường khác → dùng common sense, chỉ từ chối khi RÕ RÀNG vô nghĩa\n"
-                f"- LINH HOẠT: chấp nhận các biến thể hợp lý (vd: '15/3/1990' hay '15-03-1990' đều OK)\n"
-                f"- CHỈ từ chối khi giá trị rõ ràng sai hoặc vô nghĩa cho trường đó"
-            )}],
-            temperature=0.0,
-            max_tokens=200,
-            system="Bạn là validator cho form hợp đồng pháp lý VN. Trả về JSON duy nhất, không giải thích thêm.",
-        )
-
-        if result and not result.get("valid", True):
-            return f"❌ {result.get('error', f'{field.label} không hợp lệ. Vui lòng nhập lại.')}"
-
         return None
 
     def start_session(self) -> ChatSession:
