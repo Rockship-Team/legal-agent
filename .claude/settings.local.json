@@ -121,7 +121,10 @@
       "Bash(git commit:*)",
       "Bash(git cherry-pick:*)",
       "Bash(git stash:*)",
-      "Bash(npm run build)"
+      "Bash(npm run build)",
+      "Bash(git -C /c/Users/ADMIN/chatbot log --oneline --all --since=\"2025-01-01\")",
+      "Bash(git -C /c/Users/ADMIN/chatbot log --format=\"%H %ai %s\" --all)",
+      "Bash(git -C /c/Users/ADMIN/chatbot log --oneline --graph --all)"
     ]
   }
 }
