@@ -10,6 +10,9 @@ from legal_chatbot.utils.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# Hardcoded Sonnet model for legal Q&A — accuracy-critical, never use cheap model
+SONNET_MODEL = "claude-sonnet-4-20250514"
+
 # Module-level singletons
 _client: Optional[Anthropic] = None
 _async_client: Optional[AsyncAnthropic] = None
@@ -46,28 +49,14 @@ def get_model() -> str:
     return get_settings().llm_model
 
 
-def call_llm(
+def _prepare_kwargs(
     messages: list[dict],
-    temperature: float = 0.3,
-    max_tokens: int = 1000,
-    system: str = "",
-) -> str:
-    """Call Anthropic Messages API.
-
-    Args:
-        messages: List of {role, content} dicts. System messages are
-                  extracted automatically if no `system` param given.
-        temperature: Sampling temperature.
-        max_tokens: Max response tokens.
-        system: Explicit system prompt. If empty, extracted from messages.
-
-    Returns:
-        Response text string.
-    """
-    client = get_client()
-    model = get_model()
-
-    # Separate system message from user/assistant messages
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    system: str,
+) -> dict:
+    """Build kwargs dict for Anthropic Messages API (shared by all call_llm variants)."""
     if not system:
         user_messages = []
         for msg in messages:
@@ -78,7 +67,6 @@ def call_llm(
     else:
         user_messages = [m for m in messages if m["role"] != "system"]
 
-    # Ensure at least one user message
     if not user_messages:
         user_messages = [{"role": "user", "content": ""}]
 
@@ -91,7 +79,39 @@ def call_llm(
         kwargs["system"] = system
     if temperature > 0:
         kwargs["temperature"] = temperature
+    return kwargs
 
+
+def call_llm(
+    messages: list[dict],
+    temperature: float = 0.3,
+    max_tokens: int = 1000,
+    system: str = "",
+) -> str:
+    """Call Anthropic Messages API (uses default model from LLM_MODEL env var).
+
+    For legal Q&A where accuracy is critical, use call_llm_sonnet() instead.
+    """
+    client = get_client()
+    kwargs = _prepare_kwargs(messages, get_model(), temperature, max_tokens, system)
+    response = client.messages.create(**kwargs)
+    return response.content[0].text
+
+
+def call_llm_sonnet(
+    messages: list[dict],
+    temperature: float = 0.3,
+    max_tokens: int = 4096,
+    system: str = "",
+) -> str:
+    """Call Sonnet specifically — for legal Q&A where accuracy is critical.
+
+    Always uses SONNET_MODEL regardless of LLM_MODEL env var.
+    Cheap models (Haiku, GPT-4.1-mini, Gemini flash-lite) hallucinate
+    legal articles not present in CONTEXT.
+    """
+    client = get_client()
+    kwargs = _prepare_kwargs(messages, SONNET_MODEL, temperature, max_tokens, system)
     response = client.messages.create(**kwargs)
     return response.content[0].text
 
@@ -104,36 +124,10 @@ def call_llm_stream(
 ):
     """Stream Anthropic Messages API — yields text chunks (synchronous).
 
-    Same interface as call_llm but returns a generator of text deltas.
-    NOTE: This is synchronous and blocks the event loop. Use
-    call_llm_stream_async() for FastAPI/async contexts.
+    Uses default model from LLM_MODEL env var.
     """
     client = get_client()
-    model = get_model()
-
-    if not system:
-        user_messages = []
-        for msg in messages:
-            if msg["role"] == "system":
-                system = msg["content"]
-            else:
-                user_messages.append(msg)
-    else:
-        user_messages = [m for m in messages if m["role"] != "system"]
-
-    if not user_messages:
-        user_messages = [{"role": "user", "content": ""}]
-
-    kwargs = {
-        "model": model,
-        "max_tokens": max_tokens,
-        "messages": user_messages,
-    }
-    if system:
-        kwargs["system"] = system
-    if temperature > 0:
-        kwargs["temperature"] = temperature
-
+    kwargs = _prepare_kwargs(messages, get_model(), temperature, max_tokens, system)
     with client.messages.stream(**kwargs) as stream:
         for text in stream.text_stream:
             yield text
@@ -145,37 +139,26 @@ async def call_llm_stream_async(
     max_tokens: int = 4096,
     system: str = "",
 ):
-    """Stream Anthropic Messages API — async generator yielding text chunks.
+    """Stream Anthropic Messages API — async generator (default model)."""
+    client = get_async_client()
+    kwargs = _prepare_kwargs(messages, get_model(), temperature, max_tokens, system)
+    async with client.messages.stream(**kwargs) as stream:
+        async for text in stream.text_stream:
+            yield text
 
-    Uses AsyncAnthropic so it doesn't block the event loop.
-    Use this in FastAPI async generators for proper SSE streaming.
+
+async def call_llm_stream_sonnet_async(
+    messages: list[dict],
+    temperature: float = 0.3,
+    max_tokens: int = 4096,
+    system: str = "",
+):
+    """Stream Sonnet response — for legal Q&A streaming.
+
+    Always uses SONNET_MODEL regardless of LLM_MODEL env var.
     """
     client = get_async_client()
-    model = get_model()
-
-    if not system:
-        user_messages = []
-        for msg in messages:
-            if msg["role"] == "system":
-                system = msg["content"]
-            else:
-                user_messages.append(msg)
-    else:
-        user_messages = [m for m in messages if m["role"] != "system"]
-
-    if not user_messages:
-        user_messages = [{"role": "user", "content": ""}]
-
-    kwargs = {
-        "model": model,
-        "max_tokens": max_tokens,
-        "messages": user_messages,
-    }
-    if system:
-        kwargs["system"] = system
-    if temperature > 0:
-        kwargs["temperature"] = temperature
-
+    kwargs = _prepare_kwargs(messages, SONNET_MODEL, temperature, max_tokens, system)
     async with client.messages.stream(**kwargs) as stream:
         async for text in stream.text_stream:
             yield text
