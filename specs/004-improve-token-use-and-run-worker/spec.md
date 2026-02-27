@@ -1,297 +1,527 @@
-# 004 - Tối ưu Token Usage cho SLM + Re-run Worker
+# 004 - Tiered Model Routing + Contract Form Mode
 
 ## 1. Tổng quan
 
-### 1.1 User Problem
+### 1.1 User Problems
 
-1. **Token lãng phí nghiêm trọng**: System prompt ~1800 ký tự gửi mỗi request. Context không giới hạn — 20 articles × 1500 chars = 30.000 chars gửi thẳng vào LLM mà không truncate. Mỗi câu hỏi đơn giản cũng tốn ~8.000-12.000 tokens input.
-2. **Không kiểm soát chi phí**: Không có token counting, không có budget. Nếu chuyển sang SLM (Small Language Model — Haiku/Sonnet) thì context window nhỏ hơn, dễ bị tràn.
-3. **Nhiều LLM call redundant**: Validate 1 field tốn 1 LLM call (200 tokens). Hợp đồng 34 fields = 34 LLM calls chỉ cho validation. Search term extraction gọi LLM mỗi query.
-4. **Prompt chưa tối ưu**: System prompt dài, lặp instructions, ví dụ mẫu chiếm ~40% prompt. Không phân biệt prompt cho task nhẹ vs task nặng.
-5. **Worker chưa re-run**: Data đất đai đã cũ, chưa chạy lại worker để cập nhật. Contract templates cần refresh.
+1. **Chi phí LLM cao**: Mọi LLM call (greeting, contract type detect, search terms, legal Q&A) đều dùng Sonnet — quá tốn cho utility tasks.
+2. **Cheap models hallucinate**: Đã test Haiku, GPT-4.1-mini, Gemini flash-lite cho legal Q&A — tất cả đều suy diễn điều luật không có trong CONTEXT. Chỉ Sonnet đáng tin cậy.
+3. **Contract flow chậm**: Phải điền từng field qua chat (hỏi-đáp 20+ lượt). Không thể xem tổng thể, không sửa được sau khi điền xong.
+4. **Validation không cần thiết**: LLM validation mỗi field tốn 1 call × 34 fields = 34 calls lãng phí. Basic empty check là đủ.
+5. **Worker chưa re-run**: Data đã cũ, cần cập nhật.
 
 ### 1.2 Giải pháp
 
-**3 trụ cột tối ưu + 1 operational task:**
+**3 trụ cột:**
 
 ```
-1. DATA PRE-PROCESSING  → Giảm context size trước khi gửi LLM
-2. RAG STRATEGY          → Lấy đúng, lấy đủ, không lấy thừa
-3. PROMPT OPTIMIZATION   → Prompt ngắn hơn, hiệu quả hơn, phân tier
-4. RE-RUN WORKER         → Cập nhật data mới nhất cho tất cả categories
-```
-
-```
-TRƯỚC (003): 20 articles × full text → 30K chars → LLM (no limit) → 4096 tokens output
-SAU  (004): 5-10 articles × summarized → 6K chars → LLM (tiered) → 1024-2048 tokens output
+1. TIERED MODEL ROUTING  → Sonnet cho legal Q&A, Haiku cho utility tasks
+2. CONTRACT FORM MODE    → Form UI điền tất cả fields cùng lúc + sửa sau khi điền
+3. RE-RUN WORKER         → Cập nhật data mới nhất cho tất cả categories
 ```
 
 ### 1.3 Definition of Done (DOD)
 
 | # | Tiêu chí | Cách kiểm tra |
 |---|----------|---------------|
-| 1 | Giảm ≥50% tokens/request so với hiện tại | So sánh token count trước/sau trên cùng 10 câu hỏi |
-| 2 | Context luôn ≤ budget (chars limit per tier) | Chạy 20 queries khác nhau → không có request nào vượt limit |
-| 3 | System prompt ≤ 800 chars (giảm ~55%) | Đo length prompt mới |
-| 4 | Field validation không gọi LLM cho pattern rõ ràng | Validate date/phone/CCCD → 0 LLM calls, chỉ regex |
-| 5 | Chat quality không giảm | Test 10 câu pháp lý → so response quality trước/sau |
-| 6 | Worker re-run thành công cho tất cả categories | `pipeline status` hiện data mới + last_worker_run updated |
-| 7 | Contract templates được refresh | Templates có required_fields mới từ data mới |
+| 1 | Legal Q&A dùng Sonnet, utility dùng Haiku | Log model name per request |
+| 2 | Chi phí giảm ≥40% so với all-Sonnet | So sánh token cost trên 10 sessions hỗn hợp |
+| 3 | Legal Q&A quality không giảm | Test 10 câu pháp lý → response quality giữ nguyên |
+| 4 | Form mode: điền tất cả fields cùng lúc | POST /api/contract/fields → 200 OK |
+| 5 | Form mode: sửa fields sau khi điền | PATCH /api/contract/fields → regenerate PDF |
+| 6 | Field validation chỉ check empty | Không có LLM call nào khi validate |
+| 7 | Worker re-run thành công | `pipeline status` hiện data mới |
 
 ### 1.4 Token Audit hiện tại
 
-**Bảng phân tích tất cả LLM calls trong hệ thống:**
+**Tất cả LLM calls trong hệ thống:**
 
-| File | Mục đích | max_tokens | temp | System Prompt | Input ước tính | Ghi chú |
-|------|----------|-----------|------|---------------|----------------|---------|
-| `interactive_chat.py` | Chat response | 4096 | 0.7 | ~1800 chars | 6K-30K chars | **Lớn nhất** — context không giới hạn |
-| `interactive_chat.py` | Stream response | 4096 | 0.7 | ~1800 chars | 6K-30K chars | Tương tự chat |
-| `interactive_chat.py` | Field validation | 200 | 0.0 | ~300 chars | ~800 chars | **34 calls/contract** |
-| `interactive_chat.py` | Search term extraction | 150 | 0.1 | ~200 chars | ~200 chars | Mỗi query 1 call |
-| `interactive_chat.py` | Contract type detect | 30 | 0.1 | ~400 chars | ~100 chars | Nhẹ, OK |
-| `interactive_chat.py` | Generate articles | 4000 | 0.3 | ~600 chars | 2K+ chars | **Nặng** |
-| `interactive_chat.py` | Field extraction | 500 | 0.1 | ~400 chars | 1K+ chars | Upload flow |
-| `chat.py` | Main RAG | 4096 | 0.3 | ~700 chars | 1K-10K chars | Vector search path |
-| `chat.py` | Category detect | 20 | 0 | ~200 chars | ~200 chars | Nhẹ, OK |
-| `pipeline.py` | Category validation | 50 | 0 | ~200 chars | ~200 chars | Pipeline only |
-| `pipeline.py` | Contract discovery | 2000 | 0.1 | ~300 chars | 3K+ chars | Pipeline only |
-| `pipeline.py` | Field generation | 4000 | 0.1 | ~300 chars | 3K+ chars | Pipeline only |
-| `crawler.py` | Web URL search | 4000 | — | — | ~100 chars | Web search tool |
+| Vị trí | Mục đích | Model hiện tại | Model mới | Lý do |
+|--------|----------|---------------|-----------|-------|
+| `_handle_natural_input()` | Legal Q&A response | Sonnet | **Sonnet** | Cần chính xác, không hallucinate |
+| `stream_llm_response()` | Legal Q&A streaming | Sonnet | **Sonnet** | Tương tự |
+| `_detect_contract_type_with_llm()` | Phân loại hợp đồng | Sonnet | **Haiku** | Task đơn giản, output 1 slug |
+| `_extract_search_terms_with_llm()` | Trích search terms | Sonnet | **Haiku** | Task đơn giản, output JSON array |
+| `_validate_field_input()` | Validate field | ~~Sonnet~~ | **Xóa** | Không cần — basic empty check |
+| `_generate_articles_with_llm()` | Generate contract articles | Sonnet | **Sonnet** | Cần chính xác pháp lý |
+| `_extract_fields_from_text()` | Extract fields từ text | Sonnet | **Haiku** | Parse text, không cần suy luận |
+| `call_llm_json()` (search terms) | JSON parsing | Sonnet | **Haiku** | Utility task |
+| `_is_greeting()` (nếu dùng LLM) | Detect greeting | N/A | **Haiku** | Nếu cần LLM, dùng Haiku |
 
-**Ước tính chi phí 1 session chat (5 câu hỏi):**
-- Input: 5 × ~15K chars ≈ 75K chars ≈ 19K tokens
-- Output: 5 × 4096 max ≈ 20K tokens
-- System prompt: 5 × 1800 chars ≈ 2.3K tokens (lặp mỗi request)
-- **Tổng: ~41K tokens/session**
+**Ước tính savings (10 requests hỗn hợp: 7 utility + 3 legal Q&A):**
+
+```
+TRƯỚC: 10 × Sonnet cost = 10x
+SAU:   7 × Haiku cost + 3 × Sonnet cost ≈ 7 × 0.04x + 3 × 1x = 3.28x
+GIẢM:  ~67% chi phí
+```
 
 ---
 
-## 2. Tối ưu hóa cấu trúc dữ liệu (Data Pre-processing)
+## 2. Tiered Model Routing
 
-### 2.1 Article Summary Cache
+### 2.1 Kiến trúc
 
-Thêm field `summary` vào bảng `articles` — tóm tắt ngắn gọn nội dung điều luật (~200 chars thay vì 500-2000 chars full text).
-
-| Yêu cầu | Mô tả |
-|----------|--------|
-| Generate summary | Khi index, tạo summary 1-2 câu cho mỗi article bằng LLM (1 lần duy nhất) |
-| Dùng summary cho context | Chat RAG gửi summary thay vì full text → giảm ~70% context size |
-| Full text khi cần | Nếu user hỏi chi tiết hoặc trích dẫn nguyên văn → load full text cho top 3 articles |
-| Batch generate | Chạy 1 lần cho articles hiện tại, sau đó tự động khi index mới |
-
-```sql
-ALTER TABLE articles ADD COLUMN IF NOT EXISTS summary TEXT;
-ALTER TABLE articles ADD COLUMN IF NOT EXISTS token_count INT;
+```
+User input
+    │
+    ├─ Legal Q&A (vector search có context) ──→ call_llm_sonnet()     → Sonnet
+    ├─ Streaming Q&A ──────────────────────→ call_llm_stream_sonnet_async() → Sonnet
+    ├─ Generate contract articles ─────────→ call_llm_sonnet()         → Sonnet
+    │
+    ├─ Detect contract type ───────────────→ call_llm() (Haiku)        → Haiku
+    ├─ Extract search terms ───────────────→ call_llm_json() (Haiku)   → Haiku
+    ├─ Extract fields from text ───────────→ call_llm_json() (Haiku)   → Haiku
+    └─ Category validation (pipeline) ─────→ call_llm() (Haiku)        → Haiku
 ```
 
-**Ví dụ:**
-```
-TRƯỚC (full text gửi LLM):
-"Điều 138. Điều kiện chuyển nhượng quyền sử dụng đất
-1. Người sử dụng đất được chuyển nhượng quyền sử dụng đất khi có đủ các điều kiện sau đây:
-a) Có Giấy chứng nhận, trừ trường hợp quy định tại khoản 3 Điều 168...
-b) Đất không có tranh chấp...
-c) Quyền sử dụng đất không bị kê biên...
-d) Trong thời hạn sử dụng đất..."
-→ ~800 chars
+**Routing logic**: Không dùng classifier. Routing dựa trên code path:
+- Hàm nào gọi `call_llm_sonnet()` → Sonnet (hardcoded model)
+- Hàm nào gọi `call_llm()` → Haiku (từ `LLM_MODEL` env var)
 
-SAU (summary gửi LLM):
-"Điều 138 (Luật Đất đai 2024): Điều kiện chuyển nhượng QSD đất — cần có GCN, đất không tranh chấp, không bị kê biên, trong thời hạn sử dụng."
-→ ~150 chars (giảm 81%)
-```
+### 2.2 Changes to `utils/llm.py`
 
-### 2.2 Context Budget System
-
-Giới hạn cứng context size gửi LLM theo tier:
-
-| Tier | Mục đích | Max Context (chars) | Max Output (tokens) | Khi nào dùng |
-|------|----------|--------------------|--------------------|--------------|
-| **light** | Greeting, đơn giản | 0 | 512 | Chào hỏi, câu hỏi không pháp lý |
-| **standard** | Chat Q&A pháp lý | 8.000 | 2048 | Câu hỏi pháp lý thông thường |
-| **deep** | Phân tích chi tiết | 15.000 | 4096 | User yêu cầu chi tiết, nhiều điều luật |
-| **contract** | Tạo hợp đồng | 12.000 | 4000 | Generate contract articles |
+Thêm 2 hàm Sonnet-specific (hardcoded `claude-sonnet-4-20250514`):
 
 ```python
-CONTEXT_TIERS = {
-    "light":    {"max_context_chars": 0,     "max_output_tokens": 512},
-    "standard": {"max_context_chars": 8000,  "max_output_tokens": 2048},
-    "deep":     {"max_context_chars": 15000, "max_output_tokens": 4096},
-    "contract": {"max_context_chars": 12000, "max_output_tokens": 4000},
+SONNET_MODEL = "claude-sonnet-4-20250514"
+
+def call_llm_sonnet(
+    messages: list[dict],
+    temperature: float = 0.3,
+    max_tokens: int = 4096,
+    system: str = "",
+) -> str:
+    """Call Sonnet specifically — for legal Q&A where accuracy is critical."""
+    # Same logic as call_llm() but uses SONNET_MODEL instead of get_model()
+    ...
+
+async def call_llm_stream_sonnet_async(
+    messages: list[dict],
+    temperature: float = 0.3,
+    max_tokens: int = 4096,
+    system: str = "",
+):
+    """Stream Sonnet response — for legal Q&A streaming."""
+    # Same logic as call_llm_stream_async() but uses SONNET_MODEL
+    ...
+```
+
+Các hàm hiện tại (`call_llm`, `call_llm_json`, `call_llm_stream_async`) giữ nguyên — dùng `get_model()` → trả về `LLM_MODEL` từ `.env` (= `claude-haiku-4-5-20251001`).
+
+### 2.3 Changes to `.env`
+
+```bash
+# Haiku cho utility tasks (default model)
+LLM_MODEL=claude-haiku-4-5-20251001
+
+# Sonnet hardcoded trong code cho legal Q&A — không cần env var
+```
+
+### 2.4 Changes to `services/interactive_chat.py`
+
+| Hàm | Trước | Sau |
+|-----|-------|-----|
+| `_handle_natural_input()` | `self._call_llm(msgs, temp=0.7, max_tokens=4096)` | `call_llm_sonnet(msgs, temp=0.3, max_tokens=4096)` |
+| `stream_llm_response()` | `call_llm_stream_async(msgs, temp=0.7)` | `call_llm_stream_sonnet_async(msgs, temp=0.3)` |
+| `_generate_articles_with_llm()` | `call_llm(msgs)` | `call_llm_sonnet(msgs)` |
+| `_detect_contract_type_with_llm()` | `self._call_llm(msgs, temp=0.1, max_tokens=30)` | Giữ nguyên (dùng Haiku) |
+| `_extract_search_terms_with_llm()` | `call_llm_json(msgs)` | Giữ nguyên (dùng Haiku) |
+| `_extract_fields_from_text()` | `call_llm_json(msgs)` | Giữ nguyên (dùng Haiku) |
+| `_validate_field_input()` | Basic empty check | Giữ nguyên (không LLM) |
+
+### 2.5 Temperature
+
+- **Sonnet (legal Q&A)**: `temperature=0.3` — cần consistent, accurate
+- **Haiku (utility)**: `temperature=0.1` — cần deterministic cho classification/extraction
+
+---
+
+## 3. Contract Form Mode
+
+### 3.1 User Problem
+
+**Hiện tại (chat-only flow):**
+```
+Bot: Họ tên bên A?
+User: Nguyễn Văn A
+Bot: OK! Số CCCD?
+User: 001234567890
+Bot: Được! Địa chỉ?
+User: 123 Lê Lợi, Q.1, HCM
+... (20+ lượt hỏi-đáp, mất 5-10 phút)
+```
+
+**Problems:**
+- Chậm: 20+ round-trips qua chat
+- Không thấy tổng thể fields
+- Không sửa được field đã điền (phải làm lại từ đầu)
+- UX tệ cho mobile
+
+**Giải pháp: Form Mode**
+- Sau khi chọn loại hợp đồng → trả về danh sách fields → frontend render form
+- User điền hết → submit 1 lần → tạo PDF
+- Sau khi tạo → có thể sửa fields → regenerate PDF
+- Vẫn giữ chat flow cũ (backward compatible)
+
+### 3.2 Flow mới
+
+```
+User: "Tạo hợp đồng thuê nhà"
+    │
+    ├─ Chat flow (giữ nguyên): Bot hỏi từng field
+    │
+    └─ Form flow (MỚI):
+         1. API trả về action="contract_created" + contract_fields trong response
+         2. Frontend detect action → mở Form modal/panel
+         3. User điền tất cả fields trong form
+         4. Submit → POST /api/contract/submit
+         5. Backend generate PDF → trả về pdf_url
+         6. User xem PDF → muốn sửa → click "Sửa"
+         7. Form mở lại với giá trị đã điền → sửa → Submit lại
+         8. Backend regenerate PDF → trả về pdf_url mới
+```
+
+### 3.3 API Endpoints mới
+
+#### 3.3.1 `GET /api/contract/templates`
+
+Trả về danh sách loại hợp đồng có sẵn.
+
+```json
+// Response
+{
+  "templates": [
+    {
+      "type": "cho_thue_nha",
+      "name": "Hợp đồng thuê nhà ở",
+      "description": "Hợp đồng cho thuê nhà ở giữa bên cho thuê và bên thuê",
+      "field_count": 22
+    },
+    {
+      "type": "chuyen_nhuong_dat",
+      "name": "Hợp đồng chuyển nhượng quyền sử dụng đất",
+      "description": "...",
+      "field_count": 25
+    }
+  ]
 }
 ```
 
-**Truncation strategy khi vượt budget:**
-1. Ưu tiên articles có similarity score cao nhất
-2. Dùng summary cho articles rank thấp, full text cho top 3
-3. Cắt từ cuối danh sách articles cho đến khi fit budget
+#### 3.3.2 `POST /api/contract/create`
 
-### 2.3 Chunk Optimization
+Tạo contract draft mới và trả về danh sách fields.
 
-Hiện tại chunk max 380 chars (tuned cho PhoBERT). Cần review:
+```json
+// Request
+{
+  "session_id": "abc-123",
+  "contract_type": "cho_thue_nha"
+}
 
-| Yêu cầu | Mô tả |
-|----------|--------|
-| Tăng chunk size | 380 → 512 chars — giảm số chunks, tăng context per embedding |
-| Smart splitting | Split theo Khoản (clause) boundaries, không cắt giữa câu |
-| Metadata enrichment | Mỗi chunk ghi rõ: document_title, article_number, chunk_index |
+// Response
+{
+  "session_id": "abc-123",
+  "draft_id": "draft-456",
+  "contract_type": "cho_thue_nha",
+  "contract_name": "Hợp đồng thuê nhà ở",
+  "field_groups": [
+    {
+      "group": "Bên cho thuê (Bên A)",
+      "fields": [
+        {
+          "name": "ben_a_ho_ten",
+          "label": "Họ và tên",
+          "field_type": "text",
+          "required": true,
+          "description": "Họ tên đầy đủ bên cho thuê",
+          "default_value": null
+        },
+        {
+          "name": "ben_a_cccd",
+          "label": "Số CCCD",
+          "field_type": "text",
+          "required": true,
+          "description": "Số căn cước công dân 12 số"
+        },
+        {
+          "name": "ben_a_ngay_cap",
+          "label": "Ngày cấp CCCD",
+          "field_type": "date",
+          "required": true
+        }
+      ]
+    },
+    {
+      "group": "Bên thuê (Bên B)",
+      "fields": [...]
+    },
+    {
+      "group": "Thông tin nhà cho thuê",
+      "fields": [...]
+    },
+    {
+      "group": "Điều khoản hợp đồng",
+      "fields": [...]
+    }
+  ]
+}
+```
+
+#### 3.3.3 `POST /api/contract/submit`
+
+Submit tất cả field values → generate PDF.
+
+```json
+// Request
+{
+  "session_id": "abc-123",
+  "draft_id": "draft-456",
+  "field_values": {
+    "ben_a_ho_ten": "Nguyễn Văn A",
+    "ben_a_cccd": "001234567890",
+    "ben_a_ngay_cap": "15/03/2020",
+    "ben_b_ho_ten": "Trần Thị B",
+    "dia_chi_nha": "123 Lê Lợi, Q.1, TP.HCM",
+    "gia_thue": "5000000",
+    "thoi_han": "12 tháng"
+  }
+}
+
+// Response
+{
+  "session_id": "abc-123",
+  "draft_id": "draft-456",
+  "message": "Đã tạo hợp đồng thành công!",
+  "pdf_url": "/api/files/contract_cho_thue_nha_20260227_143022.pdf",
+  "field_values": { ... }  // echo back for frontend state
+}
+```
+
+#### 3.3.4 `PATCH /api/contract/submit`
+
+Sửa fields và regenerate PDF.
+
+```json
+// Request (chỉ gửi fields cần sửa)
+{
+  "session_id": "abc-123",
+  "draft_id": "draft-456",
+  "field_values": {
+    "gia_thue": "6000000",
+    "thoi_han": "24 tháng"
+  }
+}
+
+// Response (same format as POST)
+{
+  "session_id": "abc-123",
+  "draft_id": "draft-456",
+  "message": "Đã cập nhật hợp đồng!",
+  "pdf_url": "/api/files/contract_cho_thue_nha_20260227_143512.pdf",
+  "field_values": { ... }  // full merged values
+}
+```
+
+### 3.4 Frontend Changes
+
+#### 3.4.1 Contract Form Component
+
+Khi `ChatAPIResponse.action === "contract_created"` VÀ response có `contract_fields`:
+
+```
+┌─────────────────────────────────────────────┐
+│  Hợp đồng thuê nhà ở                    ✕  │
+├─────────────────────────────────────────────┤
+│                                             │
+│  ── Bên cho thuê (Bên A) ──                │
+│                                             │
+│  Họ và tên *          [________________]    │
+│  Số CCCD *            [________________]    │
+│  Ngày cấp CCCD *      [____/____/____]      │
+│  Nơi cấp *            [________________]    │
+│  Địa chỉ *            [________________]    │
+│                                             │
+│  ── Bên thuê (Bên B) ──                    │
+│                                             │
+│  Họ và tên *          [________________]    │
+│  Số CCCD *            [________________]    │
+│  ...                                        │
+│                                             │
+│  ── Thông tin nhà cho thuê ──               │
+│                                             │
+│  Địa chỉ nhà *        [________________]   │
+│  Diện tích (m²) *      [________________]   │
+│  ...                                        │
+│                                             │
+│  ── Điều khoản ──                           │
+│                                             │
+│  Giá thuê/tháng *      [________________]   │
+│  Thời hạn thuê *       [________________]   │
+│  ...                                        │
+│                                             │
+├─────────────────────────────────────────────┤
+│              [Hủy]     [Tạo hợp đồng]      │
+└─────────────────────────────────────────────┘
+```
+
+**Design:**
+- Modal/slide-over panel (không replace chat)
+- Fields nhóm theo `field_groups`
+- Required fields có dấu `*`
+- Validation client-side: empty check, date format
+- Submit button disabled nếu chưa điền hết required fields
+
+#### 3.4.2 Edit Mode
+
+Sau khi tạo PDF xong, trong chat response hiện:
+```
+✅ Đã tạo hợp đồng thành công!
+[📄 Tải PDF]  [✏️ Sửa thông tin]
+```
+
+Click "Sửa thông tin" → mở lại form với giá trị đã điền → sửa → Submit → regenerate PDF.
+
+#### 3.4.3 Files Frontend mới
+
+| File | Mô tả |
+|------|--------|
+| `components/Contract/ContractFormModal.tsx` | **Mới** — Form modal chứa tất cả fields |
+| `components/Contract/FieldGroup.tsx` | **Mới** — Render 1 nhóm fields |
+| `components/Contract/FieldInput.tsx` | **Mới** — Render 1 field input (text, date, number, textarea) |
+| `hooks/useContractForm.ts` | **Mới** — State management cho form (values, validation, submit) |
+| `lib/api.ts` | Thêm contract API functions |
+| `components/Chat/ChatMessage.tsx` | Thêm "Sửa thông tin" button khi có contract |
+
+### 3.5 Backend Changes
+
+#### 3.5.1 Schemas mới (`api/schemas.py`)
+
+```python
+class ContractTemplateItem(BaseModel):
+    type: str
+    name: str
+    description: str = ""
+    field_count: int = 0
+
+class ContractTemplatesResponse(BaseModel):
+    templates: list[ContractTemplateItem]
+
+class ContractFieldItem(BaseModel):
+    name: str
+    label: str
+    field_type: str = "text"  # text, date, number, textarea
+    required: bool = True
+    description: Optional[str] = None
+    default_value: Optional[str] = None
+
+class ContractFieldGroup(BaseModel):
+    group: str
+    fields: list[ContractFieldItem]
+
+class ContractCreateRequest(BaseModel):
+    session_id: Optional[str] = None
+    contract_type: str
+
+class ContractCreateResponse(BaseModel):
+    session_id: str
+    draft_id: str
+    contract_type: str
+    contract_name: str
+    field_groups: list[ContractFieldGroup]
+
+class ContractSubmitRequest(BaseModel):
+    session_id: str
+    draft_id: str
+    field_values: dict[str, str]
+
+class ContractSubmitResponse(BaseModel):
+    session_id: str
+    draft_id: str
+    message: str
+    pdf_url: Optional[str] = None
+    field_values: dict[str, str] = {}
+```
+
+#### 3.5.2 Routes mới (`api/routes/contract.py`)
+
+```python
+router = APIRouter()
+
+@router.get("/api/contract/templates")
+async def list_templates():
+    """List available contract templates"""
+    ...
+
+@router.post("/api/contract/create")
+async def create_contract(request: ContractCreateRequest):
+    """Create draft and return field definitions"""
+    # 1. Load template from DB
+    # 2. Create ContractDraft in session store
+    # 3. Return field_groups with field definitions
+    ...
+
+@router.post("/api/contract/submit")
+async def submit_contract(request: ContractSubmitRequest):
+    """Submit all fields and generate PDF"""
+    # 1. Load draft from session
+    # 2. Set all field_values
+    # 3. Generate PDF (reuse _finalize_contract logic)
+    # 4. Return pdf_url
+    ...
+
+@router.patch("/api/contract/submit")
+async def update_contract(request: ContractSubmitRequest):
+    """Update fields and regenerate PDF"""
+    # 1. Load draft from session
+    # 2. Merge new field_values
+    # 3. Regenerate PDF
+    # 4. Return new pdf_url
+    ...
+```
+
+### 3.6 Chat Flow vẫn hoạt động
+
+Chat flow (hỏi-đáp từng field) giữ nguyên 100%. Form mode là **bổ sung**, không thay thế.
+
+Frontend detect cách hiển thị:
+- Nếu user dùng chat → `action="contract_created"` → tiếp tục hỏi-đáp
+- Nếu user click nút "Tạo hợp đồng" trên UI → call `/api/contract/create` → mở form
 
 ---
 
-## 3. Chiến lược RAG (Retrieval-Augmented Generation)
+## 4. Validation
 
-### 3.1 Hybrid Search (thay thế keyword-only)
+### 4.1 Approach: Không dùng LLM
 
-Hiện tại `interactive_chat.py` chỉ dùng keyword search (LLM extract → SQL ILIKE). Cần bổ sung vector search:
-
-| Yêu cầu | Mô tả |
-|----------|--------|
-| Vector search primary | Dùng pgvector (đã có) làm tier 1 thay vì LLM keyword extraction |
-| Keyword fallback | Giữ keyword search làm tier 2 khi vector search < 3 results |
-| Loại bỏ LLM search term extraction | Tiết kiệm 1 LLM call/query (~150 tokens) — dùng embedding trực tiếp |
-
-```
-TRƯỚC: User query → LLM extract terms (150 tokens) → SQL ILIKE → articles
-SAU:   User query → Embed (local model, 0 tokens) → pgvector search → articles
-       Fallback: → N-gram keyword SQL ILIKE
-```
-
-**Tiết kiệm: ~150 tokens × N queries/session**
-
-### 3.2 Smart Top-K Selection
-
-| Yêu cầu | Mô tả |
-|----------|--------|
-| Dynamic top_k | Câu hỏi đơn giản → top 3, phức tạp → top 8 (dựa vào query length + keyword count) |
-| Relevance cutoff | Chỉ lấy articles có similarity > 0.35 (tăng từ 0.3 → giảm noise) |
-| Dedup by document | Nếu 3 chunks cùng 1 article, merge lại thành 1 entry (giảm redundancy) |
+Đã loại bỏ hoàn toàn LLM validation. Chỉ check basic:
 
 ```python
-def _dynamic_top_k(query: str) -> int:
-    """Fewer results for simple queries, more for complex ones."""
-    word_count = len(query.split())
-    if word_count <= 5:
-        return 3   # "Điều kiện cho thuê đất?"
-    elif word_count <= 15:
-        return 5   # "Thủ tục chuyển nhượng quyền sử dụng đất cần những gì?"
-    else:
-        return 8   # Long, multi-aspect questions
+def _validate_field_input(self, field: DynamicField, value: str) -> Optional[str]:
+    """Basic empty check only — no LLM call."""
+    if not value or not value.strip():
+        return f"Vui lòng nhập {field.label.lower()}."
+    return None
 ```
 
-### 3.3 Context Assembly Strategy
+**Lý do:**
+- LLM validation tốn 34 calls/contract (~6800 tokens)
+- User tự biết thông tin của mình đúng hay sai
+- Frontend form có thể thêm client-side validation (format date, phone) nếu cần
+- Tiết kiệm ~$0.02/contract
 
-```
-Cho mỗi query:
-1. Vector search → top_k articles (ranked by similarity)
-2. Phân loại:
-   - Top 3: Gửi FULL TEXT (user có thể cần trích dẫn nguyên văn)
-   - Còn lại: Gửi SUMMARY only (đủ để LLM tham khảo)
-3. Truncate nếu vượt budget tier
-4. Attach metadata: [Điều X - Luật Y - Similarity: 0.xx]
-```
+### 4.2 Client-side Validation (Frontend)
 
-**Ước tính context sau tối ưu:**
-- Top 3 full: 3 × 1000 chars = 3.000 chars
-- Top 5 summary: 5 × 200 chars = 1.000 chars
-- Metadata: ~500 chars
-- **Tổng: ~4.500 chars** (giảm từ ~15.000-30.000 chars → **giảm 70-85%**)
+Form component tự validate trước khi submit:
 
----
+| Field type | Validation |
+|-----------|-----------|
+| `text` | Non-empty |
+| `date` | Format DD/MM/YYYY |
+| `number` | Là số hợp lệ |
+| `textarea` | Non-empty |
 
-## 4. Tối ưu hóa Prompt
-
-### 4.1 System Prompt Compression
-
-Hiện tại SYSTEM_PROMPT = ~1800 chars với ví dụ mẫu dài. Cần rút gọn:
-
-**TRƯỚC (~1800 chars):**
-```
-- Phong cách, formatting rules chi tiết
-- Ví dụ cấu trúc trả lời mẫu (~40% prompt)
-- Nguyên tắc 6 điểm
-- Lưu ý
-```
-
-**SAU (~800 chars):**
-```
-Bạn là chuyên viên tư vấn pháp lý Việt Nam. Thân thiện, chuyên sâu.
-
-FORMAT:
-- [SECTION: Tên] ... [/SECTION] cho mỗi phần
-- [QUOTE]nguyên văn[/QUOTE] cho trích dẫn luật
-- [HL]giá trị[/HL] cho số quan trọng
-- **bold**, Điều X (Luật Y), ⚠️ Lưu ý:
-
-QUY TẮC:
-- DỰA HOÀN TOÀN vào CONTEXT, không tự suy diễn
-- Liệt kê TẤT CẢ điều luật liên quan
-- Kết thúc bằng [SECTION: Tóm tắt & Gợi ý]
-- Chưa đủ data → nói thẳng, gợi ý lĩnh vực có
-
-{dynamic_data_section}
-```
-
-**Tiết kiệm: ~1000 chars × mỗi request ≈ 250 tokens/request**
-
-### 4.2 Tiered Prompts
-
-Không dùng 1 system prompt cho mọi loại request:
-
-| Tier | System Prompt | Max chars | Khi nào |
-|------|--------------|-----------|---------|
-| `greeting` | Minimal (200 chars) | 200 | Chào hỏi, small talk |
-| `legal_qa` | Standard (800 chars) | 800 | Câu hỏi pháp lý |
-| `contract` | Contract-specific (600 chars) | 600 | Tạo hợp đồng |
-| `validation` | None (inline instruction) | 0 | Field validation |
-
-```python
-def _get_tier(self, user_input: str, session: ChatSession) -> str:
-    """Detect request tier for prompt/budget selection."""
-    if session.mode == 'contract_creation':
-        return 'contract'
-    if self._is_greeting(user_input):
-        return 'greeting'
-    return 'legal_qa'
-```
-
-### 4.3 Hybrid Validation (Regex + LLM fallback)
-
-Hiện tại MỌI field validation đều gọi LLM. Tối ưu: regex cho pattern rõ ràng, LLM chỉ cho trường hợp mơ hồ.
-
-```python
-def _validate_field_input(self, field, value):
-    # Tier 1: Regex cho pattern rõ ràng (0 tokens)
-    quick_result = self._regex_validate(field.name, value)
-    if quick_result is not None:
-        return quick_result  # None = valid, string = error
-
-    # Tier 2: LLM chỉ cho trường hợp mơ hồ
-    return self._llm_validate(field, value)
-```
-
-**Regex patterns (xử lý ~70% fields):**
-- `*date*` → DD/MM/YYYY regex
-- `*phone*` → 10-11 digits
-- `*id_number*`, `*cccd*` → 9 hoặc 12 digits
-- `*email*` → email regex
-- `*name*` → không chỉ toàn số, ≥ 2 ký tự
-
-**LLM chỉ cho (~30% fields):**
-- Địa chỉ (cần hiểu context)
-- Mục đích sử dụng đất (cần hiểu pháp lý)
-- Các trường tự do khác
-
-**Tiết kiệm: 34 fields × 70% regex = 24 LLM calls tiết kiệm ≈ 4.800 tokens/contract**
-
-### 4.4 Response Length Control
-
-| Loại câu hỏi | max_tokens hiện tại | max_tokens mới | Ghi chú |
-|---------------|--------------------|--------------------|---------|
-| Chào hỏi | 4096 | 512 | Chỉ cần 2-3 câu |
-| Câu hỏi đơn giản | 4096 | 1024 | 1 section |
-| Câu hỏi phức tạp | 4096 | 2048 | 2-3 sections |
-| Phân tích chi tiết | 4096 | 4096 | Giữ nguyên |
-| Field validation | 200 | 100 | Chỉ cần valid/error |
-| Search terms | 150 | 0 | **Loại bỏ** — dùng embedding |
+Không validate nội dung (tên, địa chỉ, CCCD...) — user tự chịu trách nhiệm.
 
 ---
 
@@ -303,7 +533,6 @@ def _validate_field_input(self, field, value):
 |----------|--------|
 | Re-crawl tất cả categories | Chạy pipeline cho dat_dai, dan_su, lao_dong, nha_o |
 | Force mode | Bỏ qua content hash, crawl lại toàn bộ |
-| Generate summaries | Sau khi index xong, chạy batch summary generation cho articles mới |
 | Refresh contract templates | Sau khi data mới → re-discover contract types + regenerate fields |
 | Verify data quality | Kiểm tra article count, embedding coverage, template completeness |
 
@@ -320,162 +549,130 @@ python -m legal_chatbot pipeline crawl -t "nhà ở" --force
 python -m legal_chatbot pipeline status
 python -m legal_chatbot pipeline categories
 
-# Step 3: Generate article summaries (NEW command)
-python -m legal_chatbot db generate-summaries
-
-# Step 4: Start worker for automatic updates
+# Step 3: Start worker for automatic updates
 python -m legal_chatbot pipeline worker --category start
 python -m legal_chatbot pipeline worker --category status
 ```
 
-### 5.3 New CLI Command: `generate-summaries`
-
-```bash
-python -m legal_chatbot db generate-summaries          # All articles without summary
-python -m legal_chatbot db generate-summaries --category dat_dai  # Specific category
-python -m legal_chatbot db generate-summaries --batch-size 20     # Control batch size
-```
-
-**Implementation:** Batch load articles where `summary IS NULL` → LLM summarize (batch of 10) → UPDATE articles SET summary = '...'
-
 ---
 
-## 6. Code Changes
+## 6. Code Changes Summary
 
-### 6.1 Files thay đổi
+### 6.1 Backend (chatbot repo)
 
 | File | Thay đổi |
 |------|----------|
-| `services/interactive_chat.py` | Rút gọn SYSTEM_PROMPT, thêm `_get_tier()`, context budget, hybrid validation, dynamic top_k, loại bỏ `_extract_search_terms_with_llm()` |
-| `services/chat.py` | Thêm context budget cho vector search path, dùng summary |
-| `services/embedding.py` | Tăng chunk size 380 → 512 |
-| `services/pipeline.py` | Thêm summary generation sau index, refresh templates |
-| `db/supabase.py` | Thêm `update_article_summary()`, `get_articles_without_summary()`, `get_article_full_text()` |
-| `db/migrations/004_token_optimization.sql` | ALTER articles ADD summary, token_count |
-| `cli/main.py` | Thêm `generate-summaries` command |
-| `utils/config.py` | Thêm CONTEXT_TIERS config |
+| `utils/llm.py` | Thêm `call_llm_sonnet()`, `call_llm_stream_sonnet_async()` (hardcoded Sonnet model) |
+| `utils/config.py` | Không đổi (LLM_MODEL dùng cho Haiku) |
+| `services/interactive_chat.py` | Import Sonnet functions, `_handle_natural_input()` → `call_llm_sonnet()`, `stream_llm_response()` → `call_llm_stream_sonnet_async()`, temperature 0.7→0.3 |
+| `api/schemas.py` | Thêm Contract form schemas (ContractCreateRequest, ContractSubmitRequest, etc.) |
+| `api/routes/contract.py` | **Mới** — 4 endpoints: templates, create, submit, update |
+| `api/app.py` | Register contract router |
+| `.env` | `LLM_MODEL=claude-haiku-4-5-20251001` |
 
-### 6.2 Files KHÔNG thay đổi
+### 6.2 Frontend (ui-chatbot-legal repo)
+
+| File | Thay đổi |
+|------|----------|
+| `components/Contract/ContractFormModal.tsx` | **Mới** — Form modal |
+| `components/Contract/FieldGroup.tsx` | **Mới** — Field group component |
+| `components/Contract/FieldInput.tsx` | **Mới** — Individual field input |
+| `hooks/useContractForm.ts` | **Mới** — Form state management |
+| `lib/api.ts` | Thêm contract API calls |
+| `components/Chat/ChatMessage.tsx` | Thêm "Sửa thông tin" button |
+
+### 6.3 Files KHÔNG đổi
 
 | File | Lý do |
 |------|-------|
 | `services/worker.py` | Worker logic giữ nguyên, chỉ re-run |
 | `services/crawler.py` | Crawl logic không đổi |
-| `services/indexer.py` | Parse logic không đổi |
-| `db/migrations/002_supabase.sql`, `003_worker.sql` | Giữ nguyên |
+| `services/pipeline.py` | Pipeline logic không đổi |
+| `services/pdf_generator.py` | PDF logic không đổi — reuse cho form submit |
+| `db/supabase.py` | Không cần schema mới |
 
 ---
 
-## 7. Data Model Changes
+## 7. Testing Strategy
 
-### 7.1 `articles` — Bổ sung summary + token tracking
-
-```sql
--- 004_token_optimization.sql
-ALTER TABLE articles ADD COLUMN IF NOT EXISTS summary TEXT;
-ALTER TABLE articles ADD COLUMN IF NOT EXISTS token_count INT;
-
--- Index for batch summary generation
-CREATE INDEX IF NOT EXISTS idx_articles_summary_null
-ON articles (document_id) WHERE summary IS NULL;
-```
-
-### 7.2 Không tạo bảng mới
-
-Tối ưu token không cần bảng mới — chỉ bổ sung columns vào `articles`.
-
----
-
-## 8. Configuration
-
-### 8.1 Environment Variables mới
+### Tiered Routing Tests
 
 ```bash
-# Token Optimization (NEW)
-CONTEXT_MAX_CHARS_STANDARD=8000     # Budget cho câu hỏi thông thường
-CONTEXT_MAX_CHARS_DEEP=15000        # Budget cho phân tích chi tiết
-SUMMARY_BATCH_SIZE=10               # Số articles summarize mỗi batch
-SUMMARY_MAX_CHARS=200               # Max length summary per article
+# Legal Q&A → Sonnet
+# Chat "Điều kiện cho thuê đất?" → log shows model=claude-sonnet-4-20250514
+# Response không hallucinate, chỉ cite articles trong CONTEXT
+
+# Utility → Haiku
+# Detect contract type "thuê nhà" → log shows model=claude-haiku-4-5-20251001
+# Extract search terms → log shows model=claude-haiku-4-5-20251001
 ```
 
-### 8.2 Giữ nguyên từ 003
-
-Tất cả env vars từ 003 (WORKER_*, CHAT_MODE, DB_MODE) giữ nguyên không đổi.
-
----
-
-## 9. Testing Strategy
-
-### Unit Tests
-
-| Test file | Test cases |
-|-----------|------------|
-| `test_context_budget.py` | Context ≤ budget cho mỗi tier, truncation giữ articles quan trọng nhất |
-| `test_tier_detection.py` | Greeting → light, pháp lý → standard, chi tiết → deep |
-| `test_hybrid_validation.py` | Regex fields → 0 LLM calls, ambiguous fields → 1 LLM call |
-| `test_summary_generation.py` | Summary ≤ 200 chars, giữ thông tin quan trọng |
-| `test_prompt_compression.py` | System prompt ≤ 800 chars, response quality không giảm |
-
-### Acceptance Tests
+### Contract Form Tests
 
 ```bash
-# Token optimization
-# Chat "Điều kiện cho thuê đất?" → context ≤ 8000 chars, response quality OK
-# Chat "chào" → max_tokens = 512, không gửi context
+# GET /api/contract/templates → list of templates with field counts
+# POST /api/contract/create {contract_type: "cho_thue_nha"} → field_groups
+# POST /api/contract/submit {field_values: {...}} → pdf_url
+# PATCH /api/contract/submit {field_values: {gia_thue: "6000000"}} → new pdf_url
 
-# Hybrid validation
-# Validate date "15/03/1990" → pass (regex, no LLM call)
-# Validate address "abc" → fail (regex: too short)
-# Validate "mục đích sử dụng" → LLM validate
+# Chat flow vẫn hoạt động song song
+# Chat "tạo hợp đồng thuê nhà" → hỏi từng field → vẫn OK
+```
 
-# Summary
-# db generate-summaries → articles.summary populated
-# Chat dùng summary cho context → token count giảm ≥50%
+### Worker Tests
 
-# Worker re-run
+```bash
 # pipeline crawl -t "đất đai" --force → data refreshed
 # pipeline status → updated timestamps
+# pipeline categories → article counts updated
 ```
 
 ---
 
-## 10. Ước tính Token Savings
+## 8. Ước tính Savings
 
-### Per-request savings
-
-| Optimization | Tokens saved/request | Ghi chú |
-|-------------|---------------------|---------|
-| System prompt compression | ~250 | 1800 → 800 chars |
-| Context budget (summary-first) | ~2500-5000 | 15K → 4.5K chars |
-| Loại bỏ search term extraction | ~150 | 1 LLM call eliminated |
-| Response length control | ~1000-2000 | 4096 → 1024-2048 |
-| **Tổng per request** | **~4000-7400** | |
-
-### Per-session savings (5 câu hỏi)
+### Chi phí per session (5 requests: 3 legal Q&A + 2 utility)
 
 ```
-TRƯỚC: ~41.000 tokens/session
-SAU:   ~15.000-20.000 tokens/session
-GIẢM:  ~50-63%
+TRƯỚC (all Sonnet):
+  3 Q&A × ~15K input tokens × $3/M  = $0.135
+  2 utility × ~1K tokens × $3/M     = $0.006
+  Output: 5 × ~2K tokens × $15/M    = $0.150
+  TỔNG: ~$0.29/session
+
+SAU (tiered):
+  3 Q&A × ~15K input × $3/M         = $0.135  (Sonnet, giữ nguyên)
+  2 utility × ~1K tokens × $0.80/M  = $0.002  (Haiku, giảm 73%)
+  Output Q&A: 3 × ~2K × $15/M       = $0.090
+  Output utility: 2 × ~0.1K × $4/M  = $0.001
+  TỔNG: ~$0.23/session
+
+GIẢM: ~21% per session (chủ yếu nhờ Haiku cho utility)
 ```
 
-### Per-contract savings (34 fields)
+### Chi phí per contract (form mode vs chat mode)
 
 ```
-TRƯỚC: 34 LLM validation calls × 200 tokens = 6.800 tokens
-SAU:   10 LLM calls (30%) × 150 tokens = 1.500 tokens
-GIẢM:  ~78%
+TRƯỚC (chat mode, 20 fields):
+  20 round-trips × greeting/confirm LLM calls = 0 (no LLM for confirms)
+  0 validation LLM calls (đã loại bỏ)
+  1 generate articles call (Sonnet)
+  TỔNG: ~1 Sonnet call
+
+SAU (form mode):
+  0 round-trips (form submit 1 lần)
+  0 validation calls
+  1 generate articles call (Sonnet)
+  TỔNG: ~1 Sonnet call (same cost, nhưng UX tốt hơn rất nhiều)
 ```
 
 ---
 
-## 11. Lưu ý quan trọng
+## 9. Lưu ý quan trọng
 
-1. **Quality trước, optimize sau**: Chạy A/B test trên 10 câu hỏi pháp lý trước/sau. Nếu quality giảm → rollback optimization cụ thể đó.
-2. **Summary generation = 1 lần**: Tốn LLM calls lúc đầu, nhưng tiết kiệm lâu dài. ~500 articles × 100 tokens = 50K tokens one-time cost.
-3. **Regex validation = majority**: 70% fields có pattern rõ ràng (date, phone, ID). LLM chỉ cho edge cases.
-4. **Context budget là HARD LIMIT**: Không bao giờ vượt budget. Truncate articles rank thấp thay vì fail request.
-5. **Worker re-run TRƯỚC optimize**: Cần data mới nhất trước khi generate summaries.
-6. **Backwards compatible**: API response format không đổi. Frontend không cần update.
-7. **Chunk size thay đổi = Re-embed**: Tăng 380 → 512 chars cần re-embed affected articles. Chạy trong worker re-run.
-8. **Monitor token usage**: Log actual token count per request (từ Anthropic API response `usage` field) để verify savings.
+1. **Sonnet cho accuracy, Haiku cho speed**: Legal Q&A PHẢI dùng Sonnet — tất cả cheap models đều hallucinate legal articles.
+2. **Routing = code path, không phải classifier**: Không cần ML model để phân loại request. Hàm nào thuộc legal Q&A → hardcode Sonnet.
+3. **Form mode = bổ sung, không thay thế**: Chat flow (hỏi-đáp từng field) vẫn hoạt động 100%. Form là option thêm.
+4. **No validation = intentional**: User tự biết thông tin của mình. Không cần LLM validate tên/địa chỉ/CCCD.
+5. **Worker re-run TRƯỚC khi test**: Cần data mới nhất để test legal Q&A quality.
+6. **Backward compatible**: API response format không đổi. Messages cũ render bình thường.
