@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import random
 import re
 import tempfile
@@ -24,6 +25,8 @@ from legal_chatbot.services.research import ResearchService, ResearchResult
 from legal_chatbot.services.dynamic_template import DynamicTemplate, DynamicField
 from legal_chatbot.services.generator import GeneratorService
 from legal_chatbot.services.pdf_generator import UniversalPDFGenerator
+
+logger = logging.getLogger(__name__)
 
 
 class ContractDraft(BaseModel):
@@ -369,7 +372,13 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
                 max_tokens=max_tokens,
             )
         except Exception as e:
-            return f"Lỗi khi gọi LLM: {e}"
+            logger.error(f"LLM call error: {e}", exc_info=True)
+            err_str = str(e).lower()
+            if "prompt is too long" in err_str or "too many tokens" in err_str:
+                return "Xin lỗi, nội dung quá dài để xử lý. Bạn thử hỏi ngắn gọn hơn nhé!"
+            if "rate_limit" in err_str or "429" in err_str:
+                return "Hệ thống đang bận, bạn vui lòng đợi vài giây rồi thử lại nhé!"
+            return "Xin lỗi, mình gặp trục trặc khi xử lý. Bạn thử lại nhé!"
 
     def _random_response(self, key: str, **kwargs) -> str:
         """Get a random human-like response"""

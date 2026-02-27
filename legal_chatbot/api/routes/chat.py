@@ -1,6 +1,7 @@
 """Chat API routes"""
 
 import json
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -19,6 +20,8 @@ from legal_chatbot.api.schemas import (
 )
 from legal_chatbot.api.session_store import SessionStore
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 # Global session store — initialized in app.py lifespan
@@ -26,6 +29,32 @@ store: SessionStore = SessionStore()
 
 # Directory where contracts/PDFs are stored
 CONTRACTS_DIR = Path("data/contracts")
+
+
+def _friendly_error(exc: Exception) -> str:
+    """Map raw API/LLM exceptions to user-friendly Vietnamese messages."""
+    err_str = str(exc).lower()
+
+    if "prompt is too long" in err_str or "too many tokens" in err_str:
+        return (
+            "Câu hỏi của bạn kèm ngữ cảnh quá dài, mình không xử lý được. "
+            "Bạn thử hỏi ngắn gọn hơn hoặc bắt đầu cuộc trò chuyện mới nhé!"
+        )
+    if "rate_limit" in err_str or "rate limit" in err_str or "429" in err_str:
+        return (
+            "Hệ thống đang bận, bạn vui lòng đợi vài giây rồi thử lại nhé!"
+        )
+    if "authentication" in err_str or "401" in err_str or "api_key" in err_str:
+        return "Hệ thống gặp lỗi xác thực. Vui lòng liên hệ quản trị viên."
+    if "timeout" in err_str or "timed out" in err_str:
+        return (
+            "Yêu cầu mất quá nhiều thời gian. Bạn thử lại hoặc hỏi câu ngắn hơn nhé!"
+        )
+    if "connection" in err_str or "network" in err_str:
+        return "Không thể kết nối đến máy chủ AI. Vui lòng thử lại sau."
+
+    # Generic fallback — no raw error details
+    return "Xin lỗi, mình gặp trục trặc khi xử lý. Bạn thử lại nhé!"
 
 
 def _build_session_info(entry) -> SessionInfo:
@@ -108,7 +137,8 @@ async def chat(request: ChatRequest):
     try:
         response = await entry.service.chat(request.message)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi xử lý: {e}")
+        logger.error(f"Chat error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=_friendly_error(e))
 
     # Persist messages to Supabase (non-blocking, best-effort)
     pdf_url = _pdf_path_to_url(response.pdf_path)
@@ -160,7 +190,15 @@ async def chat_stream(request: ChatRequest):
         try:
             response = await service.chat(request.message)
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Lỗi: {e}")
+            logger.error(f"Chat stream (non-stream path) error: {e}", exc_info=True)
+            friendly = _friendly_error(e)
+
+            async def error_stream():
+                yield f"data: {json.dumps({'type': 'session', 'session_id': entry.session_id})}\n\n"
+                yield f"data: {json.dumps({'type': 'token', 'text': friendly})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'message': friendly, 'action': None, 'session_info': _build_session_info(entry).model_dump(), 'suggestions': []})}\n\n"
+
+            return StreamingResponse(error_stream(), media_type="text/event-stream")
 
         pdf_url = _pdf_path_to_url(response.pdf_path)
         await store.persist_messages(
@@ -222,7 +260,8 @@ async def chat_stream(request: ChatRequest):
                 full_text += chunk
                 yield f"data: {json.dumps({'type': 'token', 'text': chunk})}\n\n"
         except Exception as e:
-            full_text = f"Xin lỗi, đã xảy ra lỗi: {e}"
+            logger.error(f"LLM streaming error: {e}", exc_info=True)
+            full_text = _friendly_error(e)
             yield f"data: {json.dumps({'type': 'token', 'text': full_text})}\n\n"
 
         # Save to session + DB
