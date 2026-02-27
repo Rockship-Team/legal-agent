@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from legal_chatbot.api.routes.chat import router as chat_router, store
+from legal_chatbot.api.routes.contract import router as contract_router, init_store as init_contract_store
 
 
 @asynccontextmanager
@@ -49,5 +50,9 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(chat_router)
+    app.include_router(contract_router)
+
+    # Share the session store with contract routes
+    init_contract_store(store)
 
     return app

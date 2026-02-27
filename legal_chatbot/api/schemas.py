@@ -68,6 +68,71 @@ class SessionUpdateRequest(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
 
 
+# =========================================================
+# Contract Form API schemas
+# =========================================================
+
+class ContractTemplateItem(BaseModel):
+    """A contract template in the templates list"""
+    type: str
+    name: str
+    description: str = ""
+    field_count: int = 0
+
+
+class ContractTemplatesResponse(BaseModel):
+    """Response for listing contract templates"""
+    templates: list[ContractTemplateItem] = []
+
+
+class ContractFieldItem(BaseModel):
+    """A single field in a contract form"""
+    name: str
+    label: str
+    field_type: str = "text"  # text, date, number, textarea
+    required: bool = True
+    description: Optional[str] = None
+    default_value: Optional[str] = None
+
+
+class ContractFieldGroup(BaseModel):
+    """A group of fields (e.g. 'Bên A', 'Bên B', 'Thông tin tài sản')"""
+    group: str
+    fields: list[ContractFieldItem]
+
+
+class ContractCreateRequest(BaseModel):
+    """Request to create a contract draft via form"""
+    session_id: Optional[str] = None
+    contract_type: str
+
+
+class ContractCreateResponse(BaseModel):
+    """Response with field definitions for the form"""
+    session_id: str
+    draft_id: str
+    contract_type: str
+    contract_name: str
+    field_groups: list[ContractFieldGroup]
+    field_values: dict[str, str] = {}
+
+
+class ContractSubmitRequest(BaseModel):
+    """Submit all field values (POST) or partial update (PATCH)"""
+    session_id: str
+    draft_id: str
+    field_values: dict[str, str]
+
+
+class ContractSubmitResponse(BaseModel):
+    """Response after submit/update with PDF URL"""
+    session_id: str
+    draft_id: str
+    message: str
+    pdf_url: Optional[str] = None
+    field_values: dict[str, str] = {}
+
+
 class HealthResponse(BaseModel):
     """Health check response"""
     status: str  # "ok" | "error"

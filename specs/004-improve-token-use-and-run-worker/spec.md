@@ -525,34 +525,26 @@ Không validate nội dung (tên, địa chỉ, CCCD...) — user tự chịu tr
 
 ---
 
-## 5. Re-run Worker
+## 5. Worker
 
-### 5.1 Yêu cầu
+### 5.1 Approach
 
-| Yêu cầu | Mô tả |
-|----------|--------|
-| Re-crawl tất cả categories | Chạy pipeline cho dat_dai, dan_su, lao_dong, nha_o |
-| Force mode | Bỏ qua content hash, crawl lại toàn bộ |
-| Refresh contract templates | Sau khi data mới → re-discover contract types + regenerate fields |
-| Verify data quality | Kiểm tra article count, embedding coverage, template completeness |
+Không cần re-crawl thủ công. Chỉ cần start worker chạy tự động dựa trên categories đã có sẵn trong Supabase.
 
-### 5.2 Execution Plan
+### 5.2 Execution
 
 ```bash
-# Step 1: Re-crawl tất cả categories
-python -m legal_chatbot pipeline crawl -t "đất đai" --force
-python -m legal_chatbot pipeline crawl -t "dân sự" --force
-python -m legal_chatbot pipeline crawl -t "lao động" --force
-python -m legal_chatbot pipeline crawl -t "nhà ở" --force
-
-# Step 2: Verify data
-python -m legal_chatbot pipeline status
-python -m legal_chatbot pipeline categories
-
-# Step 3: Start worker for automatic updates
+# Start worker — tự động crawl theo schedule (1 tuần/lần) cho tất cả categories có trong DB
 python -m legal_chatbot pipeline worker --category start
+
+# Verify
 python -m legal_chatbot pipeline worker --category status
 ```
+
+Worker sẽ tự động:
+- Lấy danh sách categories từ Supabase
+- Crawl + index cho mỗi category theo schedule (weekly)
+- Refresh contract templates nếu có data mới
 
 ---
 

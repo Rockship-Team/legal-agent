@@ -14,7 +14,10 @@ from uuid import uuid4
 from pydantic import BaseModel
 
 from legal_chatbot.utils.config import get_settings
-from legal_chatbot.utils.llm import call_llm, call_llm_json, call_llm_stream_async
+from legal_chatbot.utils.llm import (
+    call_llm, call_llm_json, call_llm_stream_async,
+    call_llm_sonnet, call_llm_stream_sonnet_async,
+)
 from legal_chatbot.utils.vietnamese import remove_diacritics
 from legal_chatbot.services.chat import CATEGORY_KEYWORDS
 from legal_chatbot.services.research import ResearchService, ResearchResult
@@ -821,10 +824,14 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
             {"role": "system", "content": self._build_system_prompt()}
         ]
 
-        # Add conversation history (last 6 messages for context)
+        # Add conversation history (last 6 messages, truncated to avoid token overflow)
+        MAX_MSG_CHARS = 3000
         for msg in session.messages[-6:]:
             if msg['role'] in ['user', 'assistant']:
-                messages.append({"role": msg['role'], "content": msg['content']})
+                content = msg['content']
+                if len(content) > MAX_MSG_CHARS:
+                    content = content[:MAX_MSG_CHARS] + "…(lược bớt)"
+                messages.append({"role": msg['role'], "content": content})
 
         # Add context — structured format so LLM knows to cite specific articles
         if context:
@@ -842,7 +849,7 @@ Hãy trả lời CHI TIẾT dựa trên các điều luật ở trên. Trích d�
             user_content = user_input
         messages.append({"role": "user", "content": user_content})
 
-        answer = self._call_llm(messages, temperature=0.7, max_tokens=4096)
+        answer = call_llm_sonnet(messages, temperature=0.3, max_tokens=4096)
 
         result = InteractiveChatResponse(message=answer)
 
@@ -864,9 +871,14 @@ Hãy trả lời CHI TIẾT dựa trên các điều luật ở trên. Trích d�
 
         messages = [{"role": "system", "content": self._build_system_prompt()}]
 
+        # Truncate history messages to avoid token overflow
+        MAX_MSG_CHARS = 3000
         for msg in session.messages[-6:]:
             if msg['role'] in ['user', 'assistant']:
-                messages.append({"role": msg['role'], "content": msg['content']})
+                content = msg['content']
+                if len(content) > MAX_MSG_CHARS:
+                    content = content[:MAX_MSG_CHARS] + "…(lược bớt)"
+                messages.append({"role": msg['role'], "content": content})
 
         if context:
             user_content = f"""CÁC ĐIỀU LUẬT LIÊN QUAN (từ cơ sở dữ liệu pháp luật):
@@ -885,8 +897,8 @@ Hãy trả lời CHI TIẾT dựa trên các điều luật ở trên. Trích d�
         return messages
 
     async def stream_llm_response(self, messages: list[dict]):
-        """Stream LLM response — async generator yielding text chunks."""
-        async for chunk in call_llm_stream_async(messages, temperature=0.7, max_tokens=4096):
+        """Stream LLM response — uses Sonnet for accurate legal Q&A."""
+        async for chunk in call_llm_stream_sonnet_async(messages, temperature=0.3, max_tokens=4096):
             yield chunk
 
     async def _detect_contract_type_with_llm(self, user_input: str) -> Optional[str]:
@@ -1112,17 +1124,28 @@ Nếu không xác định được, trả về: none"""
         )[:limit]
 
         # Step 4: Format results
+        # Keep articles generous — they're the primary source for legal Q&A.
+        # Token overflow is mainly caused by conversation history, not articles.
+        MAX_ARTICLE_CHARS = 3000
+        MAX_TOTAL_CHARS = 120_000
         results = []
+        total_chars = 0
         for item in ranked:
             a = item["data"]
             doc_info = item["doc_info"]
             content = a.get("content", "")
+            if len(content) > MAX_ARTICLE_CHARS:
+                content = content[:MAX_ARTICLE_CHARS] + "…(lược bớt)"
             header = f"Điều {a.get('article_number', '?')}"
             title = a.get("title", "")
             if title:
                 header += f": {title}"
             doc_title = doc_info.get("title", "")
-            results.append(f"**{header}** ({doc_title})\n{content}")
+            entry = f"**{header}** ({doc_title})\n{content}"
+            total_chars += len(entry)
+            if total_chars > MAX_TOTAL_CHARS:
+                break
+            results.append(entry)
 
         return "\n\n---\n\n".join(results)
 
@@ -1733,7 +1756,7 @@ THÔNG TIN HỢP ĐỒNG:
 Trả về JSON array (9 articles). CHỈ JSON, không có text giải thích."""
 
         try:
-            result = self._call_llm(
+            result = call_llm_sonnet(
                 [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
