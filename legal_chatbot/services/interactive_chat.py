@@ -947,17 +947,42 @@ Nếu không xác định được, trả về: none"""
         """
         input_normalized = remove_diacritics(user_input.lower())
 
+        # Quick check: skip trivially short / greeting-like inputs
+        _words = input_normalized.split()
+        if len(_words) <= 3:
+            _skip_patterns = [
+                'ban la ai', 'ban la gi', 'ban khoe', 'xin chao', 'chao ban',
+                'chao', 'cam on', 'hello', 'hi', 'hey', 'ok', 'bye',
+            ]
+            if any(input_normalized.startswith(p) or input_normalized == p for p in _skip_patterns):
+                return ""
+
         # Check if this is a legal question that needs research
-        legal_question_keywords = [
-            'dieu luat', 'quy dinh', 'luat', 'phap ly', 'phap luat',
-            'quyen', 'nghia vu', 'dieu kien', 'thu tuc', 'ho so',
-            'la gi', 'nhu the nao', 'can gi', 'phai', 'duoc khong',
-            'dat', 'nha', 'thue', 'mua', 'ban', 'lao dong', 'hop dong',
-            'chung nhan', 'giay phep', 'dang ky', 'cap phep', 'tranh chap',
-            'boi thuong', 'xu phat', 'hinh su', 'dan su', 'hanh chinh',
+        # Use word-boundary aware matching to avoid false positives
+        # (e.g. 'ban' matching in 'bạn là ai')
+
+        # Multi-word phrases: safe to use substring match
+        _phrase_keywords = [
+            'dieu luat', 'quy dinh', 'phap ly', 'phap luat',
+            'nghia vu', 'dieu kien', 'thu tuc', 'ho so',
+            'la gi', 'nhu the nao', 'can gi', 'duoc khong',
+            'lao dong', 'hop dong', 'chung nhan', 'giay phep',
+            'dang ky', 'cap phep', 'tranh chap', 'boi thuong',
+            'xu phat', 'hinh su', 'dan su', 'hanh chinh',
+            'mua ban', 'cho thue', 'quyen su dung',
+        ]
+        # Single-word keywords: require word boundary (space-padded) to avoid
+        # partial matches.  Only words that are unambiguously legal terms.
+        # Ambiguous ones like 'ban', 'mua', 'nha' are handled as phrases above.
+        _word_keywords = [
+            'luat', 'quyen',
         ]
 
-        is_legal_question = any(kw in input_normalized for kw in legal_question_keywords)
+        is_legal_question = any(kw in input_normalized for kw in _phrase_keywords)
+        if not is_legal_question:
+            # Pad with spaces for word-boundary matching
+            padded = f' {input_normalized} '
+            is_legal_question = any(f' {kw} ' in padded for kw in _word_keywords)
         if not is_legal_question:
             return ""
 
