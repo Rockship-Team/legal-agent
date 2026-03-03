@@ -150,8 +150,8 @@ Bạn muốn tìm hiểu thêm về thủ tục cụ thể hay chi phí không?
 NGUYÊN TẮC:
 1. DỰA HOÀN TOÀN vào các điều luật trong CONTEXT — không tự suy diễn
 2. Nếu CONTEXT có 20 điều luật, hãy phân tích hết 20 điều — không bỏ qua
-3. Khi tạo hợp đồng, HỎI TỪNG THÔNG TIN MỘT (KHÔNG dùng [SECTION] cho contract flow)
-4. Chủ động gợi ý bước tiếp theo
+3. KHÔNG BAO GIỜ tự đề nghị tạo hợp đồng. Việc tạo hợp đồng do hệ thống xử lý riêng. Nhiệm vụ của bạn CHỈ là trả lời câu hỏi pháp lý.
+4. Chủ động gợi ý bước tiếp theo (câu hỏi pháp lý liên quan, KHÔNG phải tạo hợp đồng)
 
 Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuyên nghiệp."""
 
@@ -261,7 +261,7 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
 
         if contracts:
             contract_list = ", ".join(c["name"] for c in contracts)
-            data_section += f"\nHỢP ĐỒNG HỖ TRỢ: {contract_list}."
+            data_section += f"\nHỢP ĐỒNG HỖ TRỢ (chỉ để tham khảo, KHÔNG tự đề nghị tạo): {contract_list}."
 
         return self.SYSTEM_PROMPT + data_section
 

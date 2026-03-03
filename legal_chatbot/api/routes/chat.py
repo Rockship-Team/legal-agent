@@ -4,8 +4,10 @@ import json
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response, StreamingResponse
+
+from legal_chatbot.api.auth import get_current_user
 
 from legal_chatbot.api.schemas import (
     ChatAPIResponse,
@@ -130,9 +132,9 @@ def _pdf_path_to_url(pdf_path: str | None) -> str | None:
 
 
 @router.post("/api/chat", response_model=ChatAPIResponse)
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
     """Main chat endpoint — natural language router to all services"""
-    entry = await store.get_or_create(request.session_id)
+    entry = await store.get_or_create(request.session_id, user_id=user_id)
 
     try:
         response = await entry.service.chat(request.message)
@@ -143,7 +145,8 @@ async def chat(request: ChatRequest):
     # Persist messages to Supabase (non-blocking, best-effort)
     pdf_url = _pdf_path_to_url(response.pdf_path)
     await store.persist_messages(
-        entry.session_id, request.message, response.message, pdf_url=pdf_url
+        entry.session_id, request.message, response.message,
+        pdf_url=pdf_url, user_id=user_id,
     )
 
     session = entry.service.session
@@ -170,7 +173,7 @@ async def chat(request: ChatRequest):
 
 
 @router.post("/api/chat/stream")
-async def chat_stream(request: ChatRequest):
+async def chat_stream(request: ChatRequest, user_id: str = Depends(get_current_user)):
     """SSE streaming chat — sends tokens as they're generated.
 
     Events:
@@ -178,7 +181,7 @@ async def chat_stream(request: ChatRequest):
       data: {"type":"token","text":"..."}
       data: {"type":"done","message":"...","suggestions":[...]}
     """
-    entry = await store.get_or_create(request.session_id)
+    entry = await store.get_or_create(request.session_id, user_id=user_id)
     service = entry.service
     session = service.get_session()
 
@@ -202,7 +205,8 @@ async def chat_stream(request: ChatRequest):
 
         pdf_url = _pdf_path_to_url(response.pdf_path)
         await store.persist_messages(
-            entry.session_id, request.message, response.message, pdf_url=pdf_url
+            entry.session_id, request.message, response.message,
+            pdf_url=pdf_url, user_id=user_id,
         )
 
         # Get available contract types for dynamic suggestions
@@ -266,7 +270,7 @@ async def chat_stream(request: ChatRequest):
 
         # Save to session + DB
         session.messages.append({"role": "assistant", "content": full_text})
-        await store.persist_messages(entry.session_id, request.message, full_text)
+        await store.persist_messages(entry.session_id, request.message, full_text, user_id=user_id)
 
         # Send done event with metadata
         meta = {
@@ -286,13 +290,13 @@ async def chat_stream(request: ChatRequest):
 # =========================================================
 
 @router.get("/api/sessions", response_model=SessionListResponse)
-async def list_sessions():
+async def list_sessions(user_id: str = Depends(get_current_user)):
     """List all chat sessions (from Supabase)"""
     if not store.db:
         return SessionListResponse(sessions=[])
 
     try:
-        sessions = store.db.list_chat_sessions(limit=50)
+        sessions = store.db.list_chat_sessions(limit=50, user_id=user_id)
         items = [
             SessionListItem(
                 session_id=s["id"],
@@ -308,10 +312,15 @@ async def list_sessions():
 
 
 @router.get("/api/sessions/{session_id}/messages", response_model=SessionMessagesResponse)
-async def get_session_messages(session_id: str):
+async def get_session_messages(session_id: str, user_id: str = Depends(get_current_user)):
     """Get all messages for a chat session"""
     if not store.db:
         raise HTTPException(status_code=503, detail="Database không khả dụng")
+
+    # Verify session ownership
+    session = store.db.get_chat_session(session_id)
+    if not session or session.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Session không tồn tại")
 
     try:
         messages = store.db.get_chat_messages(session_id, limit=200)
@@ -331,10 +340,15 @@ async def get_session_messages(session_id: str):
 
 
 @router.patch("/api/sessions/{session_id}")
-async def update_session(session_id: str, request: SessionUpdateRequest):
+async def update_session(session_id: str, request: SessionUpdateRequest, user_id: str = Depends(get_current_user)):
     """Update session metadata (e.g. rename title)"""
     if not store.db:
         raise HTTPException(status_code=503, detail="Database không khả dụng")
+
+    # Verify session ownership
+    session = store.db.get_chat_session(session_id)
+    if not session or session.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Session không tồn tại")
 
     try:
         update_kwargs = {}
@@ -347,8 +361,14 @@ async def update_session(session_id: str, request: SessionUpdateRequest):
 
 
 @router.delete("/api/sessions/{session_id}")
-async def delete_session(session_id: str):
+async def delete_session(session_id: str, user_id: str = Depends(get_current_user)):
     """Delete a chat session"""
+    # Verify session ownership before deleting
+    if store.db:
+        session = store.db.get_chat_session(session_id)
+        if not session or session.get("user_id") != user_id:
+            raise HTTPException(status_code=404, detail="Session không tồn tại")
+
     deleted = await store.delete(session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Session không tồn tại")

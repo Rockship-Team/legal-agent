@@ -644,7 +644,7 @@ class SupabaseClient(DatabaseInterface):
     # Chat session operations (persistent sessions)
     # =========================================================
 
-    def create_chat_session(self, session_id: str, title: str = "") -> dict:
+    def create_chat_session(self, session_id: str, title: str = "", user_id: str | None = None) -> dict:
         """Create a new chat session in Supabase."""
         client = self._write()
         data = {
@@ -652,6 +652,8 @@ class SupabaseClient(DatabaseInterface):
             "title": title or "Cuộc hội thoại mới",
             "last_message_at": "now()",
         }
+        if user_id:
+            data["user_id"] = user_id
         result = client.table("chat_sessions").upsert(data).execute()
         return result.data[0] if result.data else data
 
@@ -666,12 +668,17 @@ class SupabaseClient(DatabaseInterface):
         update_data["last_message_at"] = "now()"
         client.table("chat_sessions").update(update_data).eq("id", session_id).execute()
 
-    def list_chat_sessions(self, limit: int = 50) -> list[dict]:
+    def list_chat_sessions(self, limit: int = 50, user_id: str | None = None) -> list[dict]:
         """List chat sessions ordered by last_message_at DESC."""
         client = self._write()
-        result = (
+        query = (
             client.table("chat_sessions")
             .select("id, title, created_at, last_message_at")
+        )
+        if user_id:
+            query = query.eq("user_id", user_id)
+        result = (
+            query
             .order("last_message_at", desc=True)
             .limit(limit)
             .execute()

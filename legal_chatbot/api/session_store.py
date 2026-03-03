@@ -55,7 +55,7 @@ class SessionStore:
                 pass
         return self._db
 
-    async def get_or_create(self, session_id: Optional[str] = None) -> SessionEntry:
+    async def get_or_create(self, session_id: Optional[str] = None, user_id: Optional[str] = None) -> SessionEntry:
         """Get existing session or create a new one"""
         async with self._lock:
             # Check in-memory cache first
@@ -93,7 +93,7 @@ class SessionStore:
 
     async def persist_messages(
         self, session_id: str, user_message: str, assistant_message: str,
-        pdf_url: str | None = None,
+        pdf_url: str | None = None, user_id: str | None = None,
     ) -> None:
         """Persist user and assistant messages to Supabase after each chat round."""
         if not self.db:
@@ -111,7 +111,7 @@ class SessionStore:
                 if len(user_message) > 50:
                     title += "..."
                 entry.title = title
-                self.db.create_chat_session(session_id, title)
+                self.db.create_chat_session(session_id, title, user_id=user_id)
                 entry.is_new = False
 
             # Save messages
