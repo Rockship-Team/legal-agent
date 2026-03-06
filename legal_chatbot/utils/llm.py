@@ -169,13 +169,17 @@ def call_llm_json(
     temperature: float = 0.1,
     max_tokens: int = 4000,
     system: str = "",
+    use_sonnet: bool = False,
 ) -> dict | list | None:
     """Call LLM and parse JSON from response.
 
     Handles markdown code blocks (```json ... ```) automatically.
+    Args:
+        use_sonnet: If True, uses SONNET_MODEL for higher accuracy.
     Returns parsed JSON or None on failure.
     """
-    text = call_llm(
+    llm_fn = call_llm_sonnet if use_sonnet else call_llm
+    text = llm_fn(
         messages, temperature=temperature, max_tokens=max_tokens, system=system
     )
 
@@ -215,7 +219,6 @@ def search_web(
         Claude's synthesized response text.
     """
     client = get_client()
-    model = get_model()
 
     tool_def: dict = {
         "type": "web_search_20250305",
@@ -226,7 +229,7 @@ def search_web(
         tool_def["allowed_domains"] = allowed_domains
 
     response = client.messages.create(
-        model=model,
+        model=SONNET_MODEL,
         max_tokens=max_tokens,
         tools=[tool_def],
         messages=[{"role": "user", "content": query}],
@@ -249,6 +252,7 @@ def search_web_urls(
     """Search the web and extract URLs for a topic.
 
     Uses Claude web_search to find document URLs from a specific domain.
+    Always uses SONNET_MODEL — Haiku is unreliable with web search + JSON.
 
     Args:
         topic: Search topic (e.g. "đất đai", "lao động")
@@ -259,7 +263,6 @@ def search_web_urls(
         List of {url, title} dicts.
     """
     client = get_client()
-    model = get_model()
 
     tool_def = {
         "type": "web_search_20250305",
@@ -282,38 +285,51 @@ Trả về JSON array (CHỈ JSON, không text khác):
 ]"""
 
     response = client.messages.create(
-        model=model,
+        model=SONNET_MODEL,
         max_tokens=4000,
         tools=[tool_def],
         messages=[{"role": "user", "content": prompt}],
     )
 
-    # Extract text and parse JSON
+    # Strategy 1: Extract URLs directly from WebSearchToolResultBlock
+    # (most reliable — doesn't depend on LLM outputting valid JSON)
+    direct_urls: list[dict] = []
+    seen = set()
+    for block in response.content:
+        # WebSearchToolResultBlock has .content list of WebSearchResultBlock items
+        if getattr(block, "type", None) == "web_search_tool_result":
+            for item in getattr(block, "content", []):
+                url = getattr(item, "url", "")
+                title = getattr(item, "title", "")
+                if url and url not in seen and domain in url:
+                    seen.add(url)
+                    direct_urls.append({"url": url, "title": title})
+
+    if direct_urls:
+        logger.info(f"Web search found {len(direct_urls)} URLs directly for '{topic}'")
+        return direct_urls[:limit]
+
+    # Strategy 2: Parse JSON from LLM text response (fallback)
     raw_text = ""
     for block in response.content:
         if hasattr(block, "text"):
             raw_text += block.text
 
-    if not raw_text:
-        logger.warning(f"Web search returned no text for topic: {topic}")
-        return []
+    if raw_text:
+        result = _parse_json_from_text(raw_text)
+        if isinstance(result, list):
+            valid = []
+            for item in result:
+                url = item.get("url", "")
+                if url and url not in seen and domain in url:
+                    seen.add(url)
+                    valid.append({"url": url, "title": item.get("title", "")})
+                    if len(valid) >= limit:
+                        break
+            if valid:
+                return valid
 
-    # Parse JSON from response
-    result = _parse_json_from_text(raw_text)
-    if isinstance(result, list):
-        # Filter: only keep valid URLs
-        valid = []
-        seen = set()
-        for item in result:
-            url = item.get("url", "")
-            if url and url not in seen and domain in url:
-                seen.add(url)
-                valid.append({"url": url, "title": item.get("title", "")})
-                if len(valid) >= limit:
-                    break
-        return valid
-
-    logger.warning(f"Could not parse URLs from web search for '{topic}'")
+    logger.warning(f"Could not extract URLs from web search for '{topic}'")
     return []
 
 

@@ -133,9 +133,9 @@ class PipelineService:
         Returns a suggested category name if valid, None if not.
         """
         try:
-            from legal_chatbot.utils.llm import call_llm
+            from legal_chatbot.utils.llm import call_llm_sonnet
 
-            answer = call_llm(
+            answer = call_llm_sonnet(
                 messages=[
                     {
                         "role": "system",
@@ -788,6 +788,7 @@ QUY TẮC:
                 ],
                 temperature=0.1,
                 max_tokens=2000,
+                use_sonnet=True,
             )
 
             if not isinstance(discovered, list) or not discovered:
@@ -869,6 +870,7 @@ QUY TẮC:
                 ],
                 temperature=0.1,
                 max_tokens=4000,
+                use_sonnet=True,
             )
 
             if not isinstance(required_fields, dict):
