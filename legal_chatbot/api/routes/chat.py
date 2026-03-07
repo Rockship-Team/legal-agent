@@ -317,9 +317,10 @@ async def get_session_messages(session_id: str, user_id: str = Depends(get_curre
     if not store.db:
         raise HTTPException(status_code=503, detail="Database không khả dụng")
 
-    # Verify session ownership
+    # Verify session ownership (skip for anonymous user)
+    from legal_chatbot.api.auth import ANONYMOUS_USER_ID
     session = store.db.get_chat_session(session_id)
-    if not session or session.get("user_id") != user_id:
+    if not session or (user_id != ANONYMOUS_USER_ID and session.get("user_id") != user_id):
         raise HTTPException(status_code=404, detail="Session không tồn tại")
 
     try:
@@ -345,9 +346,10 @@ async def update_session(session_id: str, request: SessionUpdateRequest, user_id
     if not store.db:
         raise HTTPException(status_code=503, detail="Database không khả dụng")
 
-    # Verify session ownership
+    # Verify session ownership (skip for anonymous user)
+    from legal_chatbot.api.auth import ANONYMOUS_USER_ID
     session = store.db.get_chat_session(session_id)
-    if not session or session.get("user_id") != user_id:
+    if not session or (user_id != ANONYMOUS_USER_ID and session.get("user_id") != user_id):
         raise HTTPException(status_code=404, detail="Session không tồn tại")
 
     try:
@@ -363,10 +365,11 @@ async def update_session(session_id: str, request: SessionUpdateRequest, user_id
 @router.delete("/api/sessions/{session_id}")
 async def delete_session(session_id: str, user_id: str = Depends(get_current_user)):
     """Delete a chat session"""
-    # Verify session ownership before deleting
+    # Verify session ownership before deleting (skip for anonymous user)
+    from legal_chatbot.api.auth import ANONYMOUS_USER_ID
     if store.db:
         session = store.db.get_chat_session(session_id)
-        if not session or session.get("user_id") != user_id:
+        if not session or (user_id != ANONYMOUS_USER_ID and session.get("user_id") != user_id):
             raise HTTPException(status_code=404, detail="Session không tồn tại")
 
     deleted = await store.delete(session_id)

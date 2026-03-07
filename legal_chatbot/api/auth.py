@@ -1,4 +1,7 @@
-"""Supabase JWT authentication for FastAPI."""
+"""Supabase JWT authentication for FastAPI.
+
+AUTH_DISABLED=true bypasses all authentication (for testing/demo).
+"""
 
 import logging
 import os
@@ -11,8 +14,16 @@ logger = logging.getLogger(__name__)
 
 security = HTTPBearer(auto_error=False)
 
+# Anonymous user ID used when auth is disabled
+ANONYMOUS_USER_ID = "00000000-0000-0000-0000-000000000000"
+
 # Lazy-initialized Supabase client for auth verification
 _supabase_client = None
+
+
+def _is_auth_disabled() -> bool:
+    """Check if authentication is disabled (for testing/demo)."""
+    return os.getenv("AUTH_DISABLED", "").lower() in ("true", "1", "yes")
 
 
 def _get_supabase_client():
@@ -41,10 +52,22 @@ def get_current_user(
 ) -> str:
     """Extract and verify user_id from Supabase JWT.
 
-    Validates the token by calling Supabase Auth API (get_user).
-    Returns the user_id from the token.
-    Raises 401 if token is missing or invalid.
+    When AUTH_DISABLED=true, returns anonymous user ID without verification.
+    Otherwise validates the token by calling Supabase Auth API (get_user).
     """
+    # Bypass auth for testing/demo
+    if _is_auth_disabled():
+        # Still use real token if provided
+        if credentials:
+            try:
+                client = _get_supabase_client()
+                response = client.auth.get_user(credentials.credentials)
+                if response.user and response.user.id:
+                    return response.user.id
+            except Exception:
+                pass
+        return ANONYMOUS_USER_ID
+
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
