@@ -4,10 +4,10 @@ import json
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 
-from legal_chatbot.api.auth import get_current_user
+from legal_chatbot.api.auth import get_current_user, is_anonymous_user, _is_auth_disabled, get_device_id, device_id_to_uuid
 
 from legal_chatbot.api.schemas import (
     ChatAPIResponse,
@@ -31,6 +31,47 @@ store: SessionStore = SessionStore()
 
 # Directory where contracts/PDFs are stored
 CONTRACTS_DIR = Path("data/contracts")
+
+# Free question limit for anonymous users
+FREE_QUESTION_LIMIT = 2  # TODO: set back to 4 after testing
+
+
+def _get_allowed_user_ids(request: Request, user_id: str) -> set[str]:
+    """Get all user IDs that should be allowed access (real user + device UUID)."""
+    allowed = {user_id}
+    did = get_device_id(request)
+    if did:
+        allowed.add(device_id_to_uuid(did))
+    return allowed
+
+
+def _check_anonymous_limit(request: Request):
+    """Raise 429 if anonymous user exceeded free question limit.
+
+    Only enforced when AUTH_DISABLED=true (anonymous/demo mode).
+    Authenticated users (real JWT) are never limited.
+    Always counts by device_uuid so the count persists even after migration/logout.
+    """
+    if not _is_auth_disabled():
+        return  # auth enabled — all users have real JWT, no limit
+    # Skip limit if user has a valid Authorization header (logged in)
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer ") and len(auth_header) > 20:
+        return  # has JWT token — authenticated user, no limit
+    if not store.db:
+        return
+    # Always count by device_uuid (not user_id) — survives migration/logout
+
+    device_id = get_device_id(request)
+    if not device_id:
+        return  # no device tracking, skip
+    device_uuid = device_id_to_uuid(device_id)
+    count = store.db.count_user_messages(device_uuid)
+    if count >= FREE_QUESTION_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail="Bạn đã sử dụng hết câu hỏi miễn phí. Vui lòng đăng ký để tiếp tục.",
+        )
 
 
 def _friendly_error(exc: Exception) -> str:
@@ -103,9 +144,9 @@ def _build_suggestions(
     elif action == "pdf_exported":
         suggestions.extend(["Tạo hợp đồng mới", "Hỏi về luật"])
     elif action == "ask_contract_type":
-        # Dynamic suggestions from DB templates
+        # Show only top 6 common contract types to avoid UI clutter
         if available_types:
-            suggestions.extend(t["name"] for t in available_types)
+            suggestions.extend(t["name"] for t in available_types[:6])
         else:
             suggestions.append("Tạo hợp đồng")
     elif session_mode == "normal" and not has_draft:
@@ -132,8 +173,9 @@ def _pdf_path_to_url(pdf_path: str | None) -> str | None:
 
 
 @router.post("/api/chat", response_model=ChatAPIResponse)
-async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
+async def chat(raw_request: Request, request: ChatRequest, user_id: str = Depends(get_current_user)):
     """Main chat endpoint — natural language router to all services"""
+    _check_anonymous_limit(raw_request)
     entry = await store.get_or_create(request.session_id, user_id=user_id)
 
     try:
@@ -173,7 +215,7 @@ async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
 
 
 @router.post("/api/chat/stream")
-async def chat_stream(request: ChatRequest, user_id: str = Depends(get_current_user)):
+async def chat_stream(raw_request: Request, request: ChatRequest, user_id: str = Depends(get_current_user)):
     """SSE streaming chat — sends tokens as they're generated.
 
     Events:
@@ -181,6 +223,7 @@ async def chat_stream(request: ChatRequest, user_id: str = Depends(get_current_u
       data: {"type":"token","text":"..."}
       data: {"type":"done","message":"...","suggestions":[...]}
     """
+    _check_anonymous_limit(raw_request)
     entry = await store.get_or_create(request.session_id, user_id=user_id)
     service = entry.service
     session = service.get_session()
@@ -290,13 +333,25 @@ async def chat_stream(request: ChatRequest, user_id: str = Depends(get_current_u
 # =========================================================
 
 @router.get("/api/sessions", response_model=SessionListResponse)
-async def list_sessions(user_id: str = Depends(get_current_user)):
-    """List all chat sessions (from Supabase)"""
+async def list_sessions(raw_request: Request, user_id: str = Depends(get_current_user)):
+    """List all chat sessions (from Supabase).
+
+    For authenticated users, also include sessions from their device_id
+    (anonymous sessions created before login).
+    """
     if not store.db:
         return SessionListResponse(sessions=[])
 
     try:
-        sessions = store.db.list_chat_sessions(limit=50, user_id=user_id)
+    
+        user_ids = [user_id]
+        # Also include device-based sessions for authenticated users
+        device_id = get_device_id(raw_request)
+        if device_id:
+            device_uuid = device_id_to_uuid(device_id)
+            if device_uuid != user_id:
+                user_ids.append(device_uuid)
+        sessions = store.db.list_chat_sessions(limit=50, user_ids=user_ids)
         items = [
             SessionListItem(
                 session_id=s["id"],
@@ -312,15 +367,16 @@ async def list_sessions(user_id: str = Depends(get_current_user)):
 
 
 @router.get("/api/sessions/{session_id}/messages", response_model=SessionMessagesResponse)
-async def get_session_messages(session_id: str, user_id: str = Depends(get_current_user)):
+async def get_session_messages(raw_request: Request, session_id: str, user_id: str = Depends(get_current_user)):
     """Get all messages for a chat session"""
     if not store.db:
         raise HTTPException(status_code=503, detail="Database không khả dụng")
 
-    # Verify session ownership (skip for anonymous user)
-    from legal_chatbot.api.auth import ANONYMOUS_USER_ID
+    # Verify session ownership (allow both real user_id and device_uuid)
     session = store.db.get_chat_session(session_id)
-    if not session or (user_id != ANONYMOUS_USER_ID and session.get("user_id") != user_id):
+    if not session:
+        raise HTTPException(status_code=404, detail="Session không tồn tại")
+    if not is_anonymous_user(user_id) and session.get("user_id") not in _get_allowed_user_ids(raw_request, user_id):
         raise HTTPException(status_code=404, detail="Session không tồn tại")
 
     try:
@@ -341,15 +397,14 @@ async def get_session_messages(session_id: str, user_id: str = Depends(get_curre
 
 
 @router.patch("/api/sessions/{session_id}")
-async def update_session(session_id: str, request: SessionUpdateRequest, user_id: str = Depends(get_current_user)):
+async def update_session(raw_request: Request, session_id: str, request: SessionUpdateRequest, user_id: str = Depends(get_current_user)):
     """Update session metadata (e.g. rename title)"""
     if not store.db:
         raise HTTPException(status_code=503, detail="Database không khả dụng")
 
-    # Verify session ownership (skip for anonymous user)
-    from legal_chatbot.api.auth import ANONYMOUS_USER_ID
+    # Verify session ownership
     session = store.db.get_chat_session(session_id)
-    if not session or (user_id != ANONYMOUS_USER_ID and session.get("user_id") != user_id):
+    if not session or (not is_anonymous_user(user_id) and session.get("user_id") not in _get_allowed_user_ids(raw_request, user_id)):
         raise HTTPException(status_code=404, detail="Session không tồn tại")
 
     try:
@@ -363,13 +418,12 @@ async def update_session(session_id: str, request: SessionUpdateRequest, user_id
 
 
 @router.delete("/api/sessions/{session_id}")
-async def delete_session(session_id: str, user_id: str = Depends(get_current_user)):
+async def delete_session(raw_request: Request, session_id: str, user_id: str = Depends(get_current_user)):
     """Delete a chat session"""
-    # Verify session ownership before deleting (skip for anonymous user)
-    from legal_chatbot.api.auth import ANONYMOUS_USER_ID
+    # Verify session ownership before deleting
     if store.db:
         session = store.db.get_chat_session(session_id)
-        if not session or (user_id != ANONYMOUS_USER_ID and session.get("user_id") != user_id):
+        if not session or (not is_anonymous_user(user_id) and session.get("user_id") not in _get_allowed_user_ids(raw_request, user_id)):
             raise HTTPException(status_code=404, detail="Session không tồn tại")
 
     deleted = await store.delete(session_id)
@@ -431,6 +485,30 @@ async def download_file(filename: str):
             logging.getLogger(__name__).warning(f"Supabase Storage download failed for '{safe_name}': {e}")
 
     raise HTTPException(status_code=404, detail="File không tồn tại")
+
+
+@router.post("/api/sessions/migrate")
+async def migrate_sessions(request: Request, user_id: str = Depends(get_current_user)):
+    """Migrate anonymous sessions to authenticated user.
+
+    Called after magic-link login. Transfers all sessions created with
+    the device_id to the now-authenticated user_id.
+    """
+    # Only works for authenticated users (not anonymous)
+    if is_anonymous_user(user_id):
+        return {"migrated": 0, "message": "Cần đăng nhập để migrate sessions"}
+
+    device_id = get_device_id(request)
+    if not device_id or not store.db:
+        return {"migrated": 0}
+
+    try:
+        old_user_id = device_id_to_uuid(device_id)
+        count = store.db.migrate_chat_sessions(old_user_id, user_id)
+        return {"migrated": count, "message": f"Đã chuyển {count} cuộc hội thoại"}
+    except Exception as e:
+        logger.error(f"Session migration error: {e}")
+        return {"migrated": 0, "error": str(e)}
 
 
 @router.get("/api/health", response_model=HealthResponse)

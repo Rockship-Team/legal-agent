@@ -668,14 +668,23 @@ class SupabaseClient(DatabaseInterface):
         update_data["last_message_at"] = "now()"
         client.table("chat_sessions").update(update_data).eq("id", session_id).execute()
 
-    def list_chat_sessions(self, limit: int = 50, user_id: str | None = None) -> list[dict]:
-        """List chat sessions ordered by last_message_at DESC."""
+    def list_chat_sessions(self, limit: int = 50, user_id: str | None = None, user_ids: list[str] | None = None) -> list[dict]:
+        """List chat sessions ordered by last_message_at DESC.
+
+        Args:
+            user_id: Single user_id filter (backward compat)
+            user_ids: Multiple user_ids (e.g., real user + device UUID)
+        """
         client = self._write()
         query = (
             client.table("chat_sessions")
             .select("id, title, created_at, last_message_at")
         )
-        if user_id:
+        if user_ids and len(user_ids) > 1:
+            query = query.in_("user_id", user_ids)
+        elif user_ids and len(user_ids) == 1:
+            query = query.eq("user_id", user_ids[0])
+        elif user_id:
             query = query.eq("user_id", user_id)
         result = (
             query
@@ -738,6 +747,47 @@ class SupabaseClient(DatabaseInterface):
             .execute()
         )
         return result.data or []
+
+    def count_user_messages(self, user_id: str) -> int:
+        """Count total user messages across all sessions for a given user_id."""
+        client = self._write()
+        # Get all session IDs for this user
+        sessions_result = (
+            client.table("chat_sessions")
+            .select("id")
+            .eq("user_id", user_id)
+            .execute()
+        )
+        session_ids = [s["id"] for s in (sessions_result.data or [])]
+        if not session_ids:
+            return 0
+        # Count user-role messages across all sessions
+        count = 0
+        for sid in session_ids:
+            result = (
+                client.table("chat_messages")
+                .select("id", count="exact")
+                .eq("session_id", sid)
+                .eq("role", "user")
+                .execute()
+            )
+            count += result.count or 0
+        return count
+
+    def migrate_chat_sessions(self, old_user_id: str, new_user_id: str) -> int:
+        """Migrate all sessions from old_user_id to new_user_id.
+
+        Used when anonymous user (device:xxx) logs in via magic link.
+        Returns number of sessions migrated.
+        """
+        client = self._write()
+        result = (
+            client.table("chat_sessions")
+            .update({"user_id": new_user_id})
+            .eq("user_id", old_user_id)
+            .execute()
+        )
+        return len(result.data or [])
 
 
 def get_database(mode: str = None) -> DatabaseInterface:

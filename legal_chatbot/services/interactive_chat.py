@@ -473,8 +473,10 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
                 # LLM couldn't match either — show available types
                 available = self._get_available_contract_types()
                 if available:
-                    type_list = "\n".join(f"• {t['name']}" for t in available)
-                    msg = f"Mình chưa nhận diện được loại hợp đồng này. Hiện tại hỗ trợ:\n\n{type_list}\n\nBạn muốn tạo loại nào?"
+                    shown = available[:6]
+                    type_list = "\n".join(f"• {t['name']}" for t in shown)
+                    extra = f"\n\n...và {len(available) - 6} loại khác." if len(available) > 6 else ""
+                    msg = f"Mình chưa nhận diện được loại hợp đồng này. Một số loại phổ biến:\n\n{type_list}{extra}\n\nBạn có thể gõ tên loại hợp đồng bất kỳ nhé!"
                 else:
                     msg = "Hiện tại chưa có mẫu hợp đồng nào trong hệ thống."
                 response = InteractiveChatResponse(
@@ -714,8 +716,10 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
             # User wants to create contract but didn't specify type — build list from DB
             available = self._get_available_contract_types()
             if available:
-                type_list = "\n".join(f"• {t['name']}" for t in available)
-                msg = f"OK! Bạn muốn tạo loại hợp đồng nào?\n\n{type_list}\n\nNói tên loại hợp đồng nhé!"
+                shown = available[:6]
+                type_list = "\n".join(f"• {t['name']}" for t in shown)
+                extra = f"\n\n...và {len(available) - 6} loại khác." if len(available) > 6 else ""
+                msg = f"OK! Bạn muốn tạo loại hợp đồng nào?\n\n{type_list}{extra}\n\nBạn có thể gõ tên loại hợp đồng bất kỳ nhé!"
             else:
                 msg = "Hiện tại chưa có loại hợp đồng nào trong hệ thống. Vui lòng chạy seed-templates trước."
             return InteractiveChatResponse(
