@@ -1,4 +1,7 @@
-"""Shared Anthropic LLM client — single source of truth for all LLM calls."""
+"""Shared LLM client — single source of truth for all LLM calls.
+
+Supports Anthropic (default) and DeepSeek (OpenAI-compatible) for chat.
+"""
 
 import json
 import logging
@@ -16,6 +19,8 @@ SONNET_MODEL = "claude-sonnet-4-20250514"
 # Module-level singletons
 _client: Optional[Anthropic] = None
 _async_client: Optional[AsyncAnthropic] = None
+_deepseek_client = None
+_deepseek_async_client = None
 
 
 def get_client() -> Anthropic:
@@ -42,6 +47,57 @@ def get_async_client() -> AsyncAnthropic:
             )
         _async_client = AsyncAnthropic(api_key=settings.anthropic_api_key)
     return _async_client
+
+
+def _use_deepseek() -> bool:
+    """Check if DeepSeek is configured for chat."""
+    settings = get_settings()
+    return bool(settings.deepseek_api_key)
+
+
+def _get_deepseek_client():
+    """Get or create DeepSeek (OpenAI-compatible) client singleton."""
+    global _deepseek_client
+    if _deepseek_client is None:
+        from openai import OpenAI
+        settings = get_settings()
+        _deepseek_client = OpenAI(
+            api_key=settings.deepseek_api_key,
+            base_url="https://api.deepseek.com",
+        )
+    return _deepseek_client
+
+
+def _get_deepseek_async_client():
+    """Get or create async DeepSeek client singleton."""
+    global _deepseek_async_client
+    if _deepseek_async_client is None:
+        from openai import AsyncOpenAI
+        settings = get_settings()
+        _deepseek_async_client = AsyncOpenAI(
+            api_key=settings.deepseek_api_key,
+            base_url="https://api.deepseek.com",
+        )
+    return _deepseek_async_client
+
+
+def _build_oai_messages(messages: list[dict], system: str) -> list[dict]:
+    """Convert Anthropic-style messages to OpenAI format (system as first message)."""
+    oai_msgs = []
+    if not system:
+        for msg in messages:
+            if msg["role"] == "system":
+                system = msg["content"]
+            else:
+                oai_msgs.append(msg)
+    else:
+        oai_msgs = [m for m in messages if m["role"] != "system"]
+
+    if system:
+        oai_msgs.insert(0, {"role": "system", "content": system})
+    if not oai_msgs:
+        oai_msgs = [{"role": "user", "content": ""}]
+    return oai_msgs
 
 
 def get_model() -> str:
@@ -104,12 +160,24 @@ def call_llm_sonnet(
     max_tokens: int = 4096,
     system: str = "",
 ) -> str:
-    """Call Sonnet specifically — for legal Q&A where accuracy is critical.
+    """Call LLM for legal Q&A where accuracy is critical.
 
-    Always uses SONNET_MODEL regardless of LLM_MODEL env var.
-    Cheap models (Haiku, GPT-4.1-mini, Gemini flash-lite) hallucinate
-    legal articles not present in CONTEXT.
+    Routes to DeepSeek if configured, otherwise uses Anthropic Sonnet.
     """
+    if _use_deepseek():
+        client = _get_deepseek_client()
+        model = get_settings().deepseek_model
+        oai_msgs = _build_oai_messages(messages, system)
+        # Lower temperature for DeepSeek to reduce hallucination
+        ds_temp = min(temperature, 0.1)
+        response = client.chat.completions.create(
+            model=model,
+            messages=oai_msgs,
+            temperature=ds_temp,
+            max_tokens=max_tokens,
+        )
+        return response.choices[0].message.content or ""
+
     client = get_client()
     kwargs = _prepare_kwargs(messages, SONNET_MODEL, temperature, max_tokens, system)
     response = client.messages.create(**kwargs)
@@ -153,10 +221,27 @@ async def call_llm_stream_sonnet_async(
     max_tokens: int = 4096,
     system: str = "",
 ):
-    """Stream Sonnet response — for legal Q&A streaming.
+    """Stream LLM response for legal Q&A.
 
-    Always uses SONNET_MODEL regardless of LLM_MODEL env var.
+    Routes to DeepSeek if configured, otherwise uses Anthropic Sonnet.
     """
+    if _use_deepseek():
+        client = _get_deepseek_async_client()
+        model = get_settings().deepseek_model
+        oai_msgs = _build_oai_messages(messages, system)
+        ds_temp = min(temperature, 0.1)
+        stream = await client.chat.completions.create(
+            model=model,
+            messages=oai_msgs,
+            temperature=ds_temp,
+            max_tokens=max_tokens,
+            stream=True,
+        )
+        async for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+        return
+
     client = get_async_client()
     kwargs = _prepare_kwargs(messages, SONNET_MODEL, temperature, max_tokens, system)
     async with client.messages.stream(**kwargs) as stream:
@@ -194,7 +279,7 @@ def call_llm_json(
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse LLM JSON: {e}\nRaw: {text[:500]}")
+        logger.debug(f"LLM returned non-JSON (expected for non-legal queries): {text[:200]}")
         return None
 
 
@@ -271,16 +356,18 @@ def search_web_urls(
         "allowed_domains": [domain],
     }
 
-    prompt = f"""Tìm các văn bản pháp luật Việt Nam về "{topic}" trên {domain}.
+    prompt = f"""Tìm NỘI DUNG TOÀN VĂN các văn bản pháp luật Việt Nam về "{topic}" trên {domain}.
 
 Yêu cầu:
-1. Tìm kiếm luật, bộ luật, nghị định, thông tư liên quan đến {topic}
-2. Ưu tiên văn bản MỚI NHẤT (2024, 2023, 2022)
-3. Trả về tối đa {limit} kết quả
+1. CHỈ tìm trang TOÀN VĂN văn bản luật (URL dạng {domain}/van-ban/.../*.aspx)
+2. KHÔNG lấy bài viết tổng hợp, hỏi đáp, tin tức (URL chứa /phap-luat/, /hoi-dap/, /chinh-sach/)
+3. Tìm: luật, bộ luật, nghị định, thông tư liên quan đến {topic}
+4. Ưu tiên văn bản MỚI NHẤT (2024, 2023, 2022)
+5. Trả về tối đa {limit} kết quả
 
 Trả về JSON array (CHỈ JSON, không text khác):
 [
-  {{"url": "https://{domain}/van-ban/...", "title": "Tên văn bản"}},
+  {{"url": "https://{domain}/van-ban/.../<ten-van-ban>.aspx", "title": "Tên văn bản"}},
   ...
 ]"""
 
@@ -305,8 +392,18 @@ Trả về JSON array (CHỈ JSON, không text khác):
                     seen.add(url)
                     direct_urls.append({"url": url, "title": title})
 
+    # Filter: prefer full-text law pages (/van-ban/), deprioritize blog/news articles
+    blog_patterns = ['/phap-luat/', '/hoi-dap/', '/chinh-sach/', '/thoi-su-', '/tu-van-']
+    law_urls = [u for u in direct_urls if '/van-ban/' in u["url"]]
+    other_urls = [u for u in direct_urls if '/van-ban/' not in u["url"]
+                  and not any(p in u["url"] for p in blog_patterns)]
+    filtered = law_urls + other_urls
+
+    if filtered:
+        logger.info(f"Web search found {len(filtered)} URLs ({len(law_urls)} law pages) for '{topic}'")
+        return filtered[:limit]
     if direct_urls:
-        logger.info(f"Web search found {len(direct_urls)} URLs directly for '{topic}'")
+        logger.info(f"Web search found {len(direct_urls)} URLs (no law pages) for '{topic}'")
         return direct_urls[:limit]
 
     # Strategy 2: Parse JSON from LLM text response (fallback)

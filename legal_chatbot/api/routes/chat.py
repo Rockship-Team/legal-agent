@@ -74,6 +74,70 @@ def _check_anonymous_limit(request: Request):
         )
 
 
+def _postprocess_llm_response(text: str) -> str:
+    """Clean up formatting issues from non-Claude models (DeepSeek etc).
+
+    Fixes:
+    - ### markdown headings → bold text
+    - --- horizontal rules → remove
+    - <QUOTE> → [QUOTE]
+    - Orphan [/SECTION] tags → remove
+    - [QUOTE] not on its own line → fix for frontend parser
+    """
+    import re
+
+    # 1. Remove markdown headings → bold text
+    text = re.sub(r'^#{1,6}\s+(.+)$', r'**\1**', text, flags=re.MULTILINE)
+
+    # 2. Remove horizontal rules (---, ___, ***, ===, ———)
+    text = re.sub(r'^\s*[-_*=—]{3,}\s*$', '', text, flags=re.MULTILINE)
+
+    # 3. Fix <QUOTE> → [QUOTE]
+    text = text.replace('<QUOTE>', '[QUOTE]').replace('</QUOTE>', '[/QUOTE]')
+
+    # 4. Fix "- [QUOTE]" → remove list dash before [QUOTE]
+    text = re.sub(r'^(\s*)[-•]\s*\[QUOTE\]', r'\1[QUOTE]', text, flags=re.MULTILINE)
+
+    # 5. Ensure [QUOTE] and [/QUOTE] are on their own lines
+    text = re.sub(r'([^\n])\[QUOTE\]', r'\1\n[QUOTE]', text)
+    # Remove stray punctuation right after [/QUOTE]
+    text = re.sub(r'\[/QUOTE\]\s*([.),;:]+)', r'[/QUOTE]', text)
+    # Remove parenthetical source after [/QUOTE] like "(Luật Đất đai 2024)"
+    text = re.sub(r'\[/QUOTE\]\s*\([^)]*\)', r'[/QUOTE]', text)
+    text = re.sub(r'\[/QUOTE\]([^\n])', r'[/QUOTE]\n\1', text)
+
+    # 6. Remove lone list markers (dash/bullet on a line by itself)
+    text = re.sub(r'^\s*[-•]\s*$', '', text, flags=re.MULTILINE)
+
+    # 7. Fix nested [SECTION] — close open section before opening new one
+    lines = text.split('\n')
+    fixed_lines = []
+    section_depth = 0
+    for line in lines:
+        stripped = line.strip()
+        if re.match(r'\[SECTION:', stripped):
+            while section_depth > 0:
+                fixed_lines.append('[/SECTION]')
+                section_depth -= 1
+            fixed_lines.append(line)
+            section_depth += 1
+        elif stripped == '[/SECTION]':
+            if section_depth > 0:
+                fixed_lines.append(line)
+                section_depth -= 1
+        else:
+            fixed_lines.append(line)
+    while section_depth > 0:
+        fixed_lines.append('[/SECTION]')
+        section_depth -= 1
+    text = '\n'.join(fixed_lines)
+
+    # 8. Clean up multiple blank lines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+
+    return text.strip()
+
+
 def _friendly_error(exc: Exception) -> str:
     """Map raw API/LLM exceptions to user-friendly Vietnamese messages."""
     err_str = str(exc).lower()
@@ -310,6 +374,9 @@ async def chat_stream(raw_request: Request, request: ChatRequest, user_id: str =
             logger.error(f"LLM streaming error: {e}", exc_info=True)
             full_text = _friendly_error(e)
             yield f"data: {json.dumps({'type': 'token', 'text': full_text})}\n\n"
+
+        # Post-process: clean up formatting issues from non-Claude models
+        full_text = _postprocess_llm_response(full_text)
 
         # Save to session + DB
         session.messages.append({"role": "assistant", "content": full_text})
