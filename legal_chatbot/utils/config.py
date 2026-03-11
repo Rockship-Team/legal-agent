@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     worker_retry_count: int = Field(default=3, description="Max retry attempts per category")
     worker_retry_backoff: int = Field(default=30, description="Base backoff seconds (exponential)")
 
+    # DeepSeek settings (optional — for chat)
+    deepseek_api_key: Optional[str] = Field(default=None, description="DeepSeek API key")
+    deepseek_model: str = Field(default="deepseek-chat", description="DeepSeek model name")
+
     # Chat mode
     chat_mode: str = Field(default="db_only", description="Chat mode: db_only")
 
