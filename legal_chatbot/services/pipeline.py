@@ -452,6 +452,19 @@ class PipelineService:
                     logger.warning(f"Template discovery failed for {cat_name}: {e}")
             logger.info(f"  Total: {total_templates} templates")
 
+            # Phase 6: Seed suggestion data for new templates
+            if total_templates > 0:
+                logger.info("Phase 6: Seed suggestion data for new templates...")
+                try:
+                    from legal_chatbot.services.suggestion_seeder import SuggestionSeeder
+                    seeder = SuggestionSeeder(db=self.db)
+                    seed_results = seeder.seed_all(force=False)
+                    seeded = sum(1 for r in seed_results if r["status"] == "seeded")
+                    if seeded:
+                        logger.info(f"  Seeded suggestions for {seeded} templates")
+                except Exception as e:
+                    logger.warning(f"Suggestion seeding failed: {e}")
+
         except Exception as e:
             run.status = PipelineStatus.FAILED
             run.error_message = str(e)

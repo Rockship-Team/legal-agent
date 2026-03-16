@@ -243,9 +243,9 @@ class UniversalPDFGenerator:
         # Title
         contract_type_vn = contract.get('contract_type_vn', 'Hợp đồng')
         story.append(Paragraph(contract_type_vn.upper(), self.styles['title']))
-        story.append(Paragraph(
-            f"(Bản nháp - Ngày tạo: {datetime.now().strftime('%d/%m/%Y')})",
-            self.styles['small']))
+        subtitle = contract.get('subtitle', f"(Bản nháp - Ngày tạo: {datetime.now().strftime('%d/%m/%Y')})")
+        if subtitle:
+            story.append(Paragraph(subtitle, self.styles['small']))
         story.append(Spacer(1, 10))
 
         # Legal references
@@ -270,11 +270,14 @@ class UniversalPDFGenerator:
         # Signatures
         story.extend(self._build_signatures(fields))
 
-        # Disclaimer
-        story.append(Paragraph(
-            "<b>LƯU Ý:</b> Đây chỉ là BẢN NHÁP mang tính chất tham khảo. "
-            "Không thay thế tư vấn pháp lý chuyên nghiệp.",
-            self.styles['disclaimer']))
+        # Disclaimer — skip if user explicitly removed it (empty string)
+        disclaimer_text = contract.get('disclaimer',
+            "Đây chỉ là BẢN NHÁP mang tính chất tham khảo. "
+            "Không thay thế tư vấn pháp lý chuyên nghiệp.")
+        if disclaimer_text:
+            story.append(Paragraph(
+                f"<b>LƯU Ý:</b> {disclaimer_text}",
+                self.styles['disclaimer']))
 
         return story
 

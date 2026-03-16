@@ -45,5 +45,7 @@ class DynamicTemplate(BaseModel):
     key_terms: list[str] = []
     field_groups: list[dict] = []
     common_groups: list[dict] = []
+    sample_data: Optional[dict] = None
+    default_articles: Optional[list] = None
 
 

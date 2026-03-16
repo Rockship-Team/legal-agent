@@ -45,6 +45,10 @@ class ContractDraft(BaseModel):
     articles: list[dict] = []
     # Path to saved contract JSON
     contract_json_path: Optional[str] = None
+    # User-edited overrides from the preview editor
+    custom_legal_references: list[dict] = []
+    custom_disclaimer: str = ""
+    custom_subtitle: str = ""
 
 
 class ChatSession(BaseModel):
@@ -291,20 +295,57 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
         to Supabase, they are automatically available without code changes.
 
         Resolution order:
-          1. DB display_name substring match (fast, no LLM)
+          1. Word-overlap scoring against DB display_names (fast, no LLM)
           2. Direct slug match (for already-resolved slugs)
-          3. LLM classification (handles ambiguous/short input)
+          3. LLM classification (handles ambiguous/low-confidence input)
         """
         from legal_chatbot.utils.vietnamese import remove_diacritics as _rd
 
         input_normalized = _rd(input_text.lower().strip())
+        input_words = set(input_normalized.split())
+        # Remove common filler words that appear in every contract request
+        filler = {"toi", "muon", "tao", "lap", "soan", "viet", "can", "giup",
+                  "hop", "dong", "mau", "mot", "cai", "cho", "de", "xin"}
+        input_keywords = input_words - filler
         available = self._get_available_contract_types()
 
-        # 1. Substring match against DB display_names
+        # 1. Word-overlap scoring — rank all templates by relevance
+        # Score uses harmonic mean of precision (template coverage) and recall
+        # (input coverage) to avoid matching "cho thuê" to "cho thuê xe tự lái"
+        scored = []
         for t in available:
             display_normalized = _rd(t["name"].lower())
-            if display_normalized in input_normalized or input_normalized in display_normalized:
-                return t["type"]
+            display_words = set(display_normalized.split()) - filler
+            if not display_words:
+                continue
+            match_words = input_keywords if input_keywords else input_words
+            if not match_words:
+                continue
+            overlap = match_words & display_words
+            # precision: how much of template is covered by input
+            precision = len(overlap) / len(display_words)
+            # recall: how much of input keywords are covered by template
+            recall = len(overlap) / len(match_words)
+            # F1 score (harmonic mean) — balances both directions
+            if precision + recall > 0:
+                score = 2 * precision * recall / (precision + recall)
+            else:
+                score = 0.0
+            scored.append((score, t))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        if scored:
+            best_score, best_match = scored[0]
+            second_score = scored[1][0] if len(scored) > 1 else 0.0
+
+            # High confidence: best F1 > 0.6 and clearly ahead of #2
+            if best_score > 0.6 and (best_score - second_score) > 0.1:
+                logger.info(
+                    f"Contract type resolved by scoring: {best_match['type']} "
+                    f"(score={best_score:.2f}, gap={best_score - second_score:.2f})"
+                )
+                return best_match["type"]
 
         # 2. Check if input is already a valid DB slug (e.g. "cho_thue_dat")
         slug_candidate = input_normalized.replace(" ", "_")
@@ -312,8 +353,13 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
             if t["type"] == slug_candidate:
                 return t["type"]
 
-        # 3. LLM fallback — handles short/ambiguous input like "chuyển nhượng đất"
+        # 3. LLM fallback — handles ambiguous or low-confidence input
         if available:
+            best_val = scored[0][0] if scored else 0
+            logger.info(
+                f"Contract type scoring inconclusive (best={best_val:.2f}), "
+                f"delegating to LLM"
+            )
             return await self._detect_contract_type_with_llm(input_text)
 
         return None
@@ -357,6 +403,8 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
             key_terms=required_fields.get("key_terms", []),
             field_groups=required_fields.get("field_groups", []),
             common_groups=required_fields.get("common_groups", []),
+            sample_data=template_row.get("sample_data"),
+            default_articles=template_row.get("default_articles"),
             generated_from="Supabase contract_templates",
         )
 
@@ -382,6 +430,16 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
         responses = self.HUMAN_RESPONSES.get(key, [key])
         response = random.choice(responses)
         return response.format(**kwargs) if kwargs else response
+
+    def _field_question_with_suggestion(self, field: DynamicField, template: DynamicTemplate) -> str:
+        """Build field question with suggestion example if available."""
+        question = self._random_response('field_ask', label=field.label.lower())
+        if template.sample_data and field.name in template.sample_data:
+            entry = template.sample_data[field.name]
+            examples = entry.get("examples", [])
+            if examples:
+                question += f"\n💡 Ví dụ: {examples[0]}"
+        return question
 
     def _validate_field_input(self, field: DynamicField, value: str) -> Optional[str]:
         """Validate user input for a contract field — basic check only."""
@@ -414,26 +472,21 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
         if session.mode == 'contract_creation' and session.current_draft:
             return False
 
-        # Check if user is answering contract type question
-        if session.messages:
-            last_assistant_msgs = [m for m in session.messages if m.get('role') == 'assistant']
-            if last_assistant_msgs:
-                last_content = last_assistant_msgs[-1].get('content', '')
-                if 'loai hop dong' in remove_diacritics(last_content.lower()):
-                    return False
-
-        # Check if command would be parsed (contract creation, preview, export, etc.)
+        # Check if command would be parsed (preview, export, etc.)
         command = self._parse_command(user_input)
         if command:
             return False
 
-        # Check if _handle_natural_input would detect contract creation intent
-        wants_contract = any(kw in input_normalized for kw in [
-            'tao hop dong', 'lap hop dong', 'soan hop dong',
-            'tao mau', 'viet hop dong', 'can hop dong',
-            'muon tao hop dong', 'giup tao hop dong',
-        ])
-        if wants_contract:
+        # If last assistant message asked user to pick a contract type → non-stream
+        # so _handle_natural_input can route to contract creation
+        if self._last_action_was_ask_type(session):
+            return False
+
+        # If input mentions "hợp đồng" with action words, route to non-stream
+        # so _handle_natural_input → LLM can detect intent accurately
+        if 'hop dong' in input_normalized and any(kw in input_normalized for kw in [
+            'tao', 'lap', 'soan', 'viet', 'lam', 'can', 'muon', 'giup', 'cho toi',
+        ]):
             return False
 
         # Everything else → legal Q&A → stream
@@ -452,40 +505,6 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
 
         # Normalize input for comparison (remove Vietnamese diacritics)
         input_normalized = remove_diacritics(user_input.lower().strip())
-
-        # Check if user is answering contract type question
-        last_action = session.messages[-2].get('content', '') if len(session.messages) >= 2 else ''
-        if 'loai hop dong' in remove_diacritics(last_action.lower()):
-            # Resolve contract type from user input (DB + LLM, fully dynamic)
-            resolved_slug = await self._resolve_contract_type(user_input)
-            if resolved_slug:
-                response = await self._create_contract(resolved_slug)
-                session.messages.append({
-                    "role": "assistant",
-                    "content": response.message,
-                    "timestamp": datetime.now().isoformat()
-                })
-                return response
-            else:
-                # LLM couldn't match either — show available types
-                available = self._get_available_contract_types()
-                if available:
-                    shown = available[:6]
-                    type_list = "\n".join(f"• {t['name']}" for t in shown)
-                    extra = f"\n\n...và {len(available) - 6} loại khác." if len(available) > 6 else ""
-                    msg = f"Mình chưa nhận diện được loại hợp đồng này. Một số loại phổ biến:\n\n{type_list}{extra}\n\nBạn có thể gõ tên loại hợp đồng bất kỳ nhé!"
-                else:
-                    msg = "Hiện tại chưa có mẫu hợp đồng nào trong hệ thống."
-                response = InteractiveChatResponse(
-                    message=msg,
-                    action_taken="ask_contract_type"
-                )
-                session.messages.append({
-                    "role": "assistant",
-                    "content": response.message,
-                    "timestamp": datetime.now().isoformat()
-                })
-                return response
 
         # Check if we're in contract creation mode (collecting fields)
         if session.mode == 'contract_creation' and session.current_draft:
@@ -524,11 +543,14 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
                 response = await self._handle_natural_input(user_input)
 
         # Add assistant response to history
-        session.messages.append({
+        msg_entry: dict = {
             "role": "assistant",
             "content": response.message,
             "timestamp": datetime.now().isoformat()
-        })
+        }
+        if response.action_taken:
+            msg_entry["action_taken"] = response.action_taken
+        session.messages.append(msg_entry)
 
         return response
 
@@ -570,7 +592,7 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
             if draft.current_field_index < len(required_fields):
                 next_field = required_fields[draft.current_field_index]
                 confirm = self._random_response('field_confirm')
-                question = self._random_response('field_ask', label=next_field.label.lower())
+                question = self._field_question_with_suggestion(next_field, draft.template)
                 return InteractiveChatResponse(
                     message=f"{confirm} {question}",
                     contract_draft=draft,
@@ -639,30 +661,8 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
         # Normalize Vietnamese text - remove diacritics for matching
         input_normalized = remove_diacritics(user_input.lower().strip())
 
-        # Create contract command - more flexible matching
-        create_patterns = [
-            r'(?:tao|create|lap|lam)\s+(?:hop dong|contract)\s+(\w+)',
-            r'(?:hop dong|contract)\s+(\w+)\s+(?:moi|new)',
-            r'(?:tao|create|lap|lam)\s+(?:hop dong|contract)$',  # Without type
-        ]
-        for pattern in create_patterns:
-            create_match = re.search(pattern, input_normalized)
-            if create_match:
-                # Check if we captured a type
-                contract_type = create_match.group(1) if create_match.lastindex and create_match.lastindex >= 1 else None
-                if contract_type:
-                    return AgentCommand(
-                        command='create_contract',
-                        args={'type': contract_type},
-                        original_text=user_input
-                    )
-                else:
-                    # No type specified - ask user
-                    return AgentCommand(
-                        command='ask_contract_type',
-                        args={},
-                        original_text=user_input
-                    )
+        # Contract creation is handled by _handle_natural_input → LLM detection
+        # (not regex) for accurate type matching. Skip contract patterns here.
 
         # Preview command - more keywords
         preview_keywords = ['xem truoc', 'preview', 'xem hop dong', 'mo hop dong',
@@ -744,6 +744,18 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
             action_taken="unknown_command"
         )
 
+    def _last_action_was_ask_type(self, session) -> bool:
+        """Check if the last assistant message had action_taken='ask_contract_type'.
+
+        Note: current user message is already appended to session.messages,
+        so we skip all trailing user messages to find the last assistant one.
+        """
+        for msg in reversed(session.messages):
+            if msg.get("role") == "assistant":
+                return msg.get("action_taken") == "ask_contract_type"
+            # Skip user messages (including the current one just appended)
+        return False
+
     def _check_data_for_query(self) -> Optional[str]:
         """Check if DB has any data at all. Returns friendly message if DB is empty."""
         settings = get_settings()
@@ -776,21 +788,36 @@ Lưu ý: Đây chỉ là tham khảo, không thay thế tư vấn pháp lý chuy
     async def _handle_natural_input(self, user_input: str) -> InteractiveChatResponse:
         """Handle natural language input - flexible for any legal topic"""
         session = self.get_session()
-        # Normalize for comparison
-        input_normalized = remove_diacritics(user_input.lower())
 
-        # Check if user explicitly wants to CREATE a contract (not just asking about law)
-        wants_contract = any(kw in input_normalized for kw in [
-            'tao hop dong', 'lap hop dong', 'soan hop dong',
-            'tao mau', 'viet hop dong', 'can hop dong',
-            'muon tao hop dong', 'giup tao hop dong'
-        ])
-
-        # If user explicitly wants to create a contract, detect type and start flow
-        if wants_contract and not session.current_draft:
-            contract_type = await self._detect_contract_type_with_llm(user_input)
+        # If the previous message asked user to pick a contract type, treat this input as type selection
+        if not session.current_draft and self._last_action_was_ask_type(session):
+            contract_type = await self._resolve_contract_type(user_input)
             if contract_type:
                 return await self._create_contract(contract_type)
+
+        # Use LLM to detect intent + contract type in one call (no keyword hacks)
+        if not session.current_draft:
+            intent = self._detect_intent_with_llm(user_input)
+            if intent and intent.get("intent") == "create_contract":
+                contract_type = intent.get("contract_type")
+                # If LLM didn't return a slug, try word-overlap + LLM resolution
+                if not contract_type:
+                    contract_type = await self._resolve_contract_type(user_input)
+                if contract_type:
+                    return await self._create_contract(contract_type)
+                else:
+                    # User wants to create but didn't specify a recognizable type
+                    available = self._get_available_contract_types()
+                    if available:
+                        type_list = "\n".join(f"• {t['name']}" for t in available[:8])
+                        return InteractiveChatResponse(
+                            message=f"Bạn muốn tạo loại hợp đồng nào?\n\nCác loại có sẵn:\n{type_list}\n\nBạn có thể gõ tên loại hợp đồng nhé!",
+                            action_taken="ask_contract_type"
+                        )
+                    return InteractiveChatResponse(
+                        message="Hiện tại chưa có mẫu hợp đồng nào trong hệ thống. Vui lòng chạy seed-templates trước.",
+                        action_taken="no_data"
+                    )
 
         # Check if DB has data for the topic before calling LLM
         no_data_msg = self._check_data_for_query()
@@ -885,6 +912,53 @@ Hãy trả lời CHI TIẾT dựa trên các điều luật ở trên. Trích d�
         async for chunk in call_llm_stream_sonnet_async(messages, temperature=0.3, max_tokens=8192):
             yield chunk
 
+    def _detect_intent_with_llm(self, user_input: str) -> Optional[dict]:
+        """Use LLM to detect user intent: create_contract, ask_question, or other.
+
+        Returns:
+            {"intent": "create_contract", "contract_type": "slug_or_none"} or
+            {"intent": "other"} or None on failure.
+        """
+        available = self._get_available_contract_types()
+        type_lines = "\n".join(
+            f"- {t['type']}: {t['name']}"
+            for t in available
+        ) if available else "(không có mẫu nào)"
+        valid_slugs = [t['type'] for t in available] if available else []
+
+        system_prompt = f"""Bạn phân loại ý định người dùng. Trả về JSON.
+
+Ý định "create_contract": khi người dùng muốn TẠO / SOẠN / LẬP / VIẾT / LÀM hợp đồng.
+Các cách nói phổ biến: "tạo hợp đồng", "soạn hợp đồng", "lập hợp đồng", "tạo cho tôi", "tạo giúp tôi", "giúp tôi tạo", "làm hợp đồng", "cần hợp đồng", "muốn hợp đồng".
+
+Ý định "other": hỏi pháp luật, hỏi danh sách, chào hỏi, hoặc bất kỳ điều gì KHÔNG phải tạo hợp đồng.
+
+Nếu intent="create_contract", chọn contract_type từ danh sách (hoặc null nếu không khớp):
+{type_lines}
+
+QUY TẮC KHỚP:
+- "cho thuê xe" KHÔNG PHẢI "cho thuê nhà/đất"
+- Phải khớp CHÍNH XÁC nghĩa, không chọn loại gần giống
+
+Trả về ĐÚNG 1 dòng JSON:
+{{"intent":"create_contract","contract_type":"slug_hoặc_null"}}
+hoặc
+{{"intent":"other"}}"""
+
+        messages = [{"role": "user", "content": user_input}]
+        try:
+            result = call_llm_json(messages, temperature=0.1, max_tokens=60, system=system_prompt)
+            logger.info(f"Intent detection result: {result} for input: {user_input[:80]}")
+            if isinstance(result, dict) and "intent" in result:
+                # Validate contract_type slug
+                ct = result.get("contract_type")
+                if ct and ct not in valid_slugs:
+                    result["contract_type"] = None
+                return result
+        except Exception as e:
+            logger.warning(f"Intent detection failed: {e}")
+        return None
+
     async def _detect_contract_type_with_llm(self, user_input: str) -> Optional[str]:
         """Use LLM to detect contract type from user input.
 
@@ -901,13 +975,16 @@ Hãy trả lời CHI TIẾT dựa trên các điều luật ở trên. Trích d�
         )
         valid_slugs = [t['type'] for t in available]
 
-        system_prompt = f"""Bạn là trợ lý phân loại hợp đồng. Từ yêu cầu của người dùng, hãy xác định loại hợp đồng cần tạo.
+        system_prompt = f"""Bạn là trợ lý phân loại hợp đồng. Từ yêu cầu của người dùng, hãy xác định loại hợp đồng CHÍNH XÁC.
 
-Các loại hợp đồng hỗ trợ:
+Các loại hợp đồng CÓ SẴN trong hệ thống:
 {type_lines}
 
-Trả về CHỈ MỘT slug: {', '.join(valid_slugs)}
-Nếu không xác định được, trả về: none"""
+QUY TẮC QUAN TRỌNG:
+- CHỈ trả về slug nếu loại hợp đồng yêu cầu KHỚP CHÍNH XÁC với một trong các loại trên
+- Nếu người dùng yêu cầu loại hợp đồng KHÔNG CÓ trong danh sách (ví dụ: cho thuê xe, hợp đồng lao động...), trả về: none
+- KHÔNG được chọn loại gần giống. "cho thuê xe" KHÔNG PHẢI "cho thuê nhà/đất"
+- Trả về CHỈ MỘT slug hoặc none, không giải thích gì thêm"""
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -1414,7 +1491,7 @@ Khi người dùng muốn xem hợp đồng, hãy hướng dẫn họ nói 'xem 
             if required_fields:
                 first_field = required_fields[0]
                 intro = self._random_response('contract_start', type=type_name)
-                question = self._random_response('field_ask', label=first_field.label.lower())
+                question = self._field_question_with_suggestion(first_field, template)
                 message = f"{intro}\n\n{question}"
             else:
                 # No required fields (unlikely)
@@ -1762,8 +1839,56 @@ Khi người dùng muốn xem hợp đồng, hãy hướng dẫn họ nói 'xem 
         return groups
 
     def _generate_articles_with_llm(self, draft: ContractDraft) -> list[dict]:
-        """Generate contract articles (ĐIỀU 1-9) using LLM based on template and field values."""
+        """Generate contract articles (ĐIỀU 1-9).
 
+        Strategy:
+        1. If template has default_articles (pre-seeded), substitute field values → instant, no LLM
+        2. Fallback: call LLM to generate from scratch (slow, 30-60s)
+        """
+        # Try DB template substitution first (no LLM needed)
+        if draft.template and draft.template.default_articles:
+            articles = self._substitute_article_templates(
+                draft.template.default_articles, draft.field_values
+            )
+            if articles:
+                return articles
+
+        # Fallback: generate via LLM
+        return self._generate_articles_via_llm(draft)
+
+    def _substitute_article_templates(
+        self, templates: list[dict], field_values: dict[str, str]
+    ) -> list[dict]:
+        """Substitute {field_name} placeholders in article templates with actual values.
+
+        Unmatched placeholders are replaced with "___" (blank to fill in).
+        """
+        import re
+
+        articles = []
+        for tmpl in templates:
+            title = tmpl.get("title", "")
+            content = tmpl.get("content", [])
+
+            # Substitute in title
+            def replace_placeholder(match):
+                key = match.group(1)
+                return field_values.get(key, "___")
+
+            filled_title = re.sub(r"\{(\w+)\}", replace_placeholder, title)
+
+            # Substitute in each content line
+            filled_content = []
+            for line in content:
+                filled_line = re.sub(r"\{(\w+)\}", replace_placeholder, line)
+                filled_content.append(filled_line)
+
+            articles.append({"title": filled_title, "content": filled_content})
+
+        return articles
+
+    def _generate_articles_via_llm(self, draft: ContractDraft) -> list[dict]:
+        """Fallback: generate articles via LLM when no DB template exists."""
         contract_type_vn = draft.template.name if draft.template else 'Hợp đồng'
         legal_refs = ', '.join(draft.legal_basis) if draft.legal_basis else 'Bộ luật Dân sự 2015'
 
@@ -1872,18 +1997,21 @@ Trả về JSON array (9 articles). CHỈ JSON, không có text giải thích.""
 
         contract_type_vn = draft.template.name if draft.template else 'Hợp đồng'
 
-        # Build legal_references in proper format
-        legal_references = []
-        if draft.template and draft.template.legal_articles:
-            for art in draft.template.legal_articles:
-                legal_references.append({
-                    'article': f'Điều {art.article_number}',
-                    'law': art.document_name,
-                    'description': art.summary or art.article_title,
-                })
-        elif draft.legal_basis:
-            for ref in draft.legal_basis:
-                legal_references.append({'article': ref, 'law': '', 'description': ''})
+        # Build legal_references — use user-edited overrides if available
+        if draft.custom_legal_references:
+            legal_references = draft.custom_legal_references
+        else:
+            legal_references = []
+            if draft.template and draft.template.legal_articles:
+                for art in draft.template.legal_articles:
+                    legal_references.append({
+                        'article': f'Điều {art.article_number}',
+                        'law': art.document_name,
+                        'description': art.summary or art.article_title,
+                    })
+            elif draft.legal_basis:
+                for ref in draft.legal_basis:
+                    legal_references.append({'article': ref, 'law': '', 'description': ''})
 
         # Build the complete contract JSON
         contract_data = {
@@ -1895,6 +2023,9 @@ Trả về JSON array (9 articles). CHỈ JSON, không có text giải thích.""
             'fields': self._group_fields(draft),
             'articles': draft.articles,
         }
+        # User-edited overrides (empty string = user explicitly removed it)
+        contract_data['disclaimer'] = draft.custom_disclaimer
+        contract_data['subtitle'] = draft.custom_subtitle
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         json_filename = f"{draft.contract_type}_{timestamp}.json"
