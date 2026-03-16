@@ -518,15 +518,63 @@ class SupabaseClient(DatabaseInterface):
     def list_all_active_templates(self) -> List[dict]:
         """List all active templates that have required_fields defined.
 
-        Returns flat list of {contract_type, display_name, required_fields}.
+        Returns flat list of {contract_type, display_name, required_fields, sample_data}.
         Used by InteractiveChatService for dynamic contract type suggestions.
         """
+        client = self._read()
+        result = (
+            client.table("contract_templates")
+            .select("contract_type, display_name, required_fields, sample_data")
+            .eq("is_active", True)
+            .not_.is_("required_fields", "null")
+            .execute()
+        )
+        return result.data
+
+    def get_templates_needing_seed(self) -> List[dict]:
+        """Return active templates that have no sample_data yet."""
         client = self._read()
         result = (
             client.table("contract_templates")
             .select("contract_type, display_name, required_fields")
             .eq("is_active", True)
             .not_.is_("required_fields", "null")
+            .is_("sample_data", "null")
+            .execute()
+        )
+        return result.data
+
+    def update_template_sample_data(self, contract_type: str, sample_data: dict) -> bool:
+        """Update sample_data JSONB for a contract template."""
+        client = self._write()
+        result = (
+            client.table("contract_templates")
+            .update({"sample_data": sample_data})
+            .eq("contract_type", contract_type)
+            .execute()
+        )
+        return len(result.data) > 0
+
+    def update_template_default_articles(self, contract_type: str, default_articles: list) -> bool:
+        """Update default_articles JSONB for a contract template."""
+        client = self._write()
+        result = (
+            client.table("contract_templates")
+            .update({"default_articles": default_articles})
+            .eq("contract_type", contract_type)
+            .execute()
+        )
+        return len(result.data) > 0
+
+    def get_templates_needing_articles(self) -> List[dict]:
+        """Return active templates that have no default_articles yet."""
+        client = self._read()
+        result = (
+            client.table("contract_templates")
+            .select("contract_type, display_name, required_fields, cached_articles")
+            .eq("is_active", True)
+            .not_.is_("required_fields", "null")
+            .is_("default_articles", "null")
             .execute()
         )
         return result.data

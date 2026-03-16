@@ -3,7 +3,9 @@
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from legal_chatbot.api.auth import get_current_user
 
 from legal_chatbot.api.schemas import (
     ContractCreateRequest,
@@ -14,6 +16,9 @@ from legal_chatbot.api.schemas import (
     ContractSubmitResponse,
     ContractTemplateItem,
     ContractTemplatesResponse,
+    GenerateArticlesRequest,
+    GenerateArticlesResponse,
+    LegalReference,
 )
 from legal_chatbot.api.session_store import SessionStore
 
@@ -29,6 +34,25 @@ def init_store(shared_store: SessionStore):
     """Set the shared session store (called from app.py)."""
     global store
     store = shared_store
+
+
+DEFAULT_DISCLAIMER = "Đây chỉ là BẢN NHÁP mang tính chất tham khảo. Không thay thế tư vấn pháp lý chuyên nghiệp."
+
+
+def _build_legal_refs(template) -> list[LegalReference]:
+    """Build legal references from template for the create response."""
+    refs = []
+    if template.legal_articles:
+        for art in template.legal_articles:
+            refs.append(LegalReference(
+                article=f"Điều {art.article_number}",
+                law=art.document_name,
+                description=art.summary or art.article_title,
+            ))
+    elif template.legal_references:
+        for ref in template.legal_references:
+            refs.append(LegalReference(article=ref, law="", description=""))
+    return refs
 
 
 def _pdf_path_to_url(pdf_path: str | None) -> str | None:
@@ -59,15 +83,18 @@ async def list_templates():
                 tmpl = service._load_template_from_db(t["type"])
                 field_count = len([f for f in tmpl.fields if f.required])
                 description = tmpl.description
+                has_sample_data = bool(tmpl.sample_data)
             except Exception:
                 field_count = 0
                 description = ""
+                has_sample_data = False
 
             templates.append(ContractTemplateItem(
                 type=t["type"],
                 name=t["name"],
                 description=description,
                 field_count=field_count,
+                has_sample_data=has_sample_data,
             ))
         return ContractTemplatesResponse(templates=templates)
     except Exception as e:
@@ -99,6 +126,9 @@ async def create_contract(request: ContractCreateRequest):
             contract_name=existing_draft.template.name,
             field_groups=field_groups,
             field_values=existing_draft.field_values or {},
+            legal_references=_build_legal_refs(existing_draft.template),
+            disclaimer=DEFAULT_DISCLAIMER,
+            has_default_articles=bool(existing_draft.template.default_articles),
         )
 
     # Resolve contract type
@@ -145,13 +175,47 @@ async def create_contract(request: ContractCreateRequest):
         contract_name=template.name,
         field_groups=field_groups,
         field_values={},
+        legal_references=_build_legal_refs(template),
+        disclaimer=DEFAULT_DISCLAIMER,
+        has_default_articles=bool(template.default_articles),
     )
 
 
+@router.post("/api/contract/generate-articles", response_model=GenerateArticlesResponse)
+async def generate_articles(request: GenerateArticlesRequest, user_id: str = Depends(get_current_user)):
+    """Generate contract articles (ĐIỀU 1-9) based on current field values.
+
+    If default_articles exist in DB (pre-seeded), returns instantly via template
+    substitution. Otherwise falls back to LLM generation (30-60s).
+    """
+    entry = await store.get_or_create(request.session_id, user_id=user_id)
+    session = entry.service.session
+
+    if not session or not session.current_draft:
+        raise HTTPException(status_code=404, detail="Không tìm thấy hợp đồng đang soạn.")
+
+    draft = session.current_draft
+    if draft.id != request.draft_id:
+        raise HTTPException(status_code=404, detail="Draft ID không khớp.")
+
+    # Update field values so articles reflect current data
+    if request.field_values:
+        draft.field_values = request.field_values
+
+    # Generate articles via LLM (sync, 30-60s)
+    try:
+        articles = entry.service._generate_articles_with_llm(draft)
+        draft.articles = articles
+        return GenerateArticlesResponse(articles=articles)
+    except Exception as e:
+        logger.error(f"Article generation failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi tạo điều khoản: {e}")
+
+
 @router.post("/api/contract/submit", response_model=ContractSubmitResponse)
-async def submit_contract(request: ContractSubmitRequest):
+async def submit_contract(request: ContractSubmitRequest, user_id: str = Depends(get_current_user)):
     """Submit all field values and generate PDF."""
-    entry = await store.get_or_create(request.session_id)
+    entry = await store.get_or_create(request.session_id, user_id=user_id)
     session = entry.service.session
 
     if not session or not session.current_draft:
@@ -167,6 +231,15 @@ async def submit_contract(request: ContractSubmitRequest):
     draft.current_field_index = len(draft.template.fields)
     session.mode = 'normal'
 
+    # Apply user-edited articles/legal_references/disclaimer if provided
+    if request.articles:
+        draft.articles = request.articles
+    if request.legal_references:
+        draft.custom_legal_references = request.legal_references
+    # Always pass disclaimer/subtitle — empty string means user removed it
+    draft.custom_disclaimer = request.disclaimer
+    draft.custom_subtitle = request.subtitle
+
     # Generate PDF
     response = entry.service._finalize_contract(draft)
     pdf_url = _pdf_path_to_url(response.pdf_path)
@@ -177,6 +250,7 @@ async def submit_contract(request: ContractSubmitRequest):
         f"Tạo {draft.template.name}",
         response.message,
         pdf_url=pdf_url,
+        user_id=user_id,
     )
 
     return ContractSubmitResponse(
@@ -189,9 +263,9 @@ async def submit_contract(request: ContractSubmitRequest):
 
 
 @router.patch("/api/contract/submit", response_model=ContractSubmitResponse)
-async def update_contract(request: ContractSubmitRequest):
+async def update_contract(request: ContractSubmitRequest, user_id: str = Depends(get_current_user)):
     """Update fields and regenerate PDF."""
-    entry = await store.get_or_create(request.session_id)
+    entry = await store.get_or_create(request.session_id, user_id=user_id)
     session = entry.service.session
 
     if not session or not session.current_draft:
@@ -204,8 +278,16 @@ async def update_contract(request: ContractSubmitRequest):
     # Merge new field values into existing
     draft.field_values.update(request.field_values)
     draft.state = 'ready'
-    # Clear previously generated articles so they get regenerated
-    draft.articles = []
+
+    # Apply user-edited data if provided, else clear for regeneration
+    if request.articles:
+        draft.articles = request.articles
+    else:
+        draft.articles = []
+    if request.legal_references:
+        draft.custom_legal_references = request.legal_references
+    draft.custom_disclaimer = request.disclaimer
+    draft.custom_subtitle = request.subtitle
 
     # Regenerate PDF
     response = entry.service._finalize_contract(draft)
@@ -217,6 +299,7 @@ async def update_contract(request: ContractSubmitRequest):
         f"Cập nhật {draft.template.name}",
         response.message,
         pdf_url=pdf_url,
+        user_id=user_id,
     )
 
     return ContractSubmitResponse(
@@ -246,15 +329,16 @@ def _groups_from_db(template) -> list[ContractFieldGroup]:
     """Build groups from template.field_groups (DB JSONB)."""
     groups = []
     used_fields = set()
+    sd = template.sample_data
 
     for group_def in template.field_groups:
-        group_name = group_def.get("group", "Khác")
+        group_name = group_def.get("label") or group_def.get("group", "Khác")
         prefix = group_def.get("prefix", "")
         field_items = []
 
         for field in template.fields:
             if prefix and field.name.startswith(prefix):
-                field_items.append(_field_to_item(field))
+                field_items.append(_field_to_item(field, sd))
                 used_fields.add(field.name)
 
         if field_items:
@@ -262,13 +346,13 @@ def _groups_from_db(template) -> list[ContractFieldGroup]:
 
     # Also process common_groups
     for group_def in template.common_groups:
-        group_name = group_def.get("group", "Khác")
+        group_name = group_def.get("label") or group_def.get("group", "Khác")
         prefix = group_def.get("prefix", "")
         field_items = []
 
         for field in template.fields:
             if field.name not in used_fields and prefix and field.name.startswith(prefix):
-                field_items.append(_field_to_item(field))
+                field_items.append(_field_to_item(field, sd))
                 used_fields.add(field.name)
 
         if field_items:
@@ -279,7 +363,7 @@ def _groups_from_db(template) -> list[ContractFieldGroup]:
     if remaining:
         groups.append(ContractFieldGroup(
             group="Thông tin khác",
-            fields=[_field_to_item(f) for f in remaining],
+            fields=[_field_to_item(f, sd) for f in remaining],
         ))
 
     return groups
@@ -297,18 +381,19 @@ def _groups_from_prefix(template) -> list[ContractFieldGroup]:
 
     groups_dict: dict[str, list[ContractFieldItem]] = {}
     used = set()
+    sd = template.sample_data
 
     for prefix, group_name in prefix_map.items():
         items = []
         for field in template.fields:
             if field.name.startswith(prefix):
-                items.append(_field_to_item(field))
+                items.append(_field_to_item(field, sd))
                 used.add(field.name)
         if items:
             groups_dict[group_name] = items
 
     # Remaining fields
-    remaining = [_field_to_item(f) for f in template.fields if f.name not in used]
+    remaining = [_field_to_item(f, sd) for f in template.fields if f.name not in used]
     if remaining:
         groups_dict["Điều khoản hợp đồng"] = remaining
 
@@ -318,8 +403,11 @@ def _groups_from_prefix(template) -> list[ContractFieldGroup]:
     ]
 
 
-def _field_to_item(field) -> ContractFieldItem:
-    """Convert DynamicField to ContractFieldItem."""
+def _field_to_item(field, sample_data: dict = None) -> ContractFieldItem:
+    """Convert DynamicField to ContractFieldItem with optional suggestions."""
+    suggestions = None
+    if sample_data and field.name in sample_data:
+        suggestions = sample_data[field.name]
     return ContractFieldItem(
         name=field.name,
         label=field.label,
@@ -327,4 +415,5 @@ def _field_to_item(field) -> ContractFieldItem:
         required=field.required,
         description=field.description,
         default_value=field.default_value,
+        suggestions=suggestions,
     )

@@ -1538,6 +1538,152 @@ def seed_templates():
     console.print(f"\n[green][OK] Seeded {count} contract templates[/green]")
 
 
+@app.command("seed-suggestions")
+def seed_suggestions(
+    contract_type: str = typer.Option("", "--type", "-t", help="Specific contract_type slug to seed"),
+    force: bool = typer.Option(False, "--force", "-f", help="Regenerate existing sample data"),
+    status: bool = typer.Option(False, "--status", "-s", help="Show which templates have sample data"),
+):
+    """Generate suggestion examples for contract template fields using LLM.
+
+    Uses LLM to create realistic Vietnamese sample data (names, addresses, etc.)
+    for each field in contract templates. Data is stored in Supabase for instant
+    retrieval during contract creation.
+    """
+    from legal_chatbot.utils.config import get_settings
+
+    settings = get_settings()
+    if settings.db_mode != "supabase":
+        console.print("[red]seed-suggestions requires DB_MODE=supabase[/red]")
+        raise typer.Exit(1)
+
+    from legal_chatbot.db.supabase import get_database
+    from legal_chatbot.services.suggestion_seeder import SuggestionSeeder
+
+    db = get_database()
+    seeder = SuggestionSeeder(db=db)
+
+    if status:
+        results = seeder.get_status()
+        if not results:
+            console.print("[yellow]No active templates found in DB.[/yellow]")
+            raise typer.Exit(0)
+
+        table = Table(title="Template Suggestion Data Status")
+        table.add_column("Contract Type", style="cyan")
+        table.add_column("Display Name", style="white")
+        table.add_column("Has Data", style="green")
+
+        for r in results:
+            has = f"✅ {r['field_count']} fields" if r["has_data"] else "❌ missing"
+            table.add_row(r["contract_type"], r["display_name"], has)
+
+        console.print(table)
+        return
+
+    if contract_type:
+        console.print(f"[blue]Seeding suggestions for {contract_type}...[/blue]")
+        result = seeder.seed_template(contract_type, force=force)
+        if result:
+            console.print(f"[green][OK] Seeded {len(result)} fields for {contract_type}[/green]")
+        else:
+            console.print(f"[yellow]Skipped or failed for {contract_type}[/yellow]")
+        return
+
+    console.print(f"[blue]Seeding suggestions for all templates (force={force})...[/blue]")
+    results = seeder.seed_all(force=force)
+
+    if not results:
+        console.print("[yellow]No templates found to seed.[/yellow]")
+        return
+
+    table = Table(title="Seed Results")
+    table.add_column("Contract Type", style="cyan")
+    table.add_column("Display Name", style="white")
+    table.add_column("Status", style="green")
+    table.add_column("Fields", style="blue")
+
+    for r in results:
+        status_str = "✅ seeded" if r["status"] == "seeded" else "⏭ skipped"
+        table.add_row(r["contract_type"], r["display_name"], status_str, str(r["field_count"]))
+
+    console.print(table)
+    seeded = sum(1 for r in results if r["status"] == "seeded")
+    console.print(f"\n[green][OK] Seeded {seeded}/{len(results)} templates[/green]")
+
+
+@app.command("seed-articles")
+def seed_articles(
+    contract_type: str = typer.Option("", "--type", "-t", help="Specific contract_type slug to seed"),
+    force: bool = typer.Option(False, "--force", "-f", help="Regenerate existing article templates"),
+    status: bool = typer.Option(False, "--status", "-s", help="Show which templates have article templates"),
+):
+    """Generate default article templates (ĐIỀU 1-9) with placeholders for contract templates.
+
+    Uses LLM once to create article templates with {field_name} placeholders.
+    At contract creation time, placeholders are substituted — no LLM needed.
+    """
+    from legal_chatbot.utils.config import get_settings
+
+    settings = get_settings()
+    if settings.db_mode != "supabase":
+        console.print("[red]seed-articles requires DB_MODE=supabase[/red]")
+        raise typer.Exit(1)
+
+    from legal_chatbot.db.supabase import get_database
+    from legal_chatbot.services.suggestion_seeder import SuggestionSeeder
+
+    db = get_database()
+    seeder = SuggestionSeeder(db=db)
+
+    if status:
+        results = seeder.get_articles_status()
+        if not results:
+            console.print("[yellow]No active templates found in DB.[/yellow]")
+            raise typer.Exit(0)
+
+        table = Table(title="Template Article Templates Status")
+        table.add_column("Contract Type", style="cyan")
+        table.add_column("Display Name", style="white")
+        table.add_column("Has Articles", style="green")
+
+        for r in results:
+            has = f"✅ {r['article_count']} điều" if r["has_articles"] else "❌ missing"
+            table.add_row(r["contract_type"], r["display_name"], has)
+
+        console.print(table)
+        return
+
+    if contract_type:
+        console.print(f"[blue]Seeding article templates for {contract_type}...[/blue]")
+        result = seeder.seed_articles(contract_type, force=force)
+        if result:
+            console.print(f"[green][OK] Seeded {len(result)} articles for {contract_type}[/green]")
+        else:
+            console.print(f"[yellow]Skipped or failed for {contract_type}[/yellow]")
+        return
+
+    console.print(f"[blue]Seeding article templates for all templates (force={force})...[/blue]")
+    results = seeder.seed_all_articles(force=force)
+
+    if not results:
+        console.print("[yellow]No templates found to seed.[/yellow]")
+        return
+
+    table = Table(title="Article Seed Results")
+    table.add_column("Contract Type", style="cyan")
+    table.add_column("Display Name", style="white")
+    table.add_column("Status", style="green")
+    table.add_column("Articles", style="blue")
+
+    for r in results:
+        status_str = "✅ seeded" if r["status"] == "seeded" else "⏭ skipped"
+        table.add_row(r["contract_type"], r["display_name"], status_str, str(r["article_count"]))
+
+    console.print(table)
+    seeded = sum(1 for r in results if r["status"] == "seeded")
+    console.print(f"\n[green][OK] Seeded {seeded}/{len(results)} templates[/green]")
+
 
 @app.command("serve")
 def serve(

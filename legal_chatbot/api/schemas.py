@@ -78,6 +78,7 @@ class ContractTemplateItem(BaseModel):
     name: str
     description: str = ""
     field_count: int = 0
+    has_sample_data: bool = False
 
 
 class ContractTemplatesResponse(BaseModel):
@@ -93,6 +94,7 @@ class ContractFieldItem(BaseModel):
     required: bool = True
     description: Optional[str] = None
     default_value: Optional[str] = None
+    suggestions: Optional[dict] = None  # {examples: [...], format_hint: "..."}
 
 
 class ContractFieldGroup(BaseModel):
@@ -107,6 +109,19 @@ class ContractCreateRequest(BaseModel):
     contract_type: str
 
 
+class LegalReference(BaseModel):
+    """A legal reference (căn cứ pháp lý)"""
+    article: str = ""
+    law: str = ""
+    description: str = ""
+
+
+class ContractArticle(BaseModel):
+    """A contract article/clause (ĐIỀU)"""
+    title: str
+    content: list[str] = []
+
+
 class ContractCreateResponse(BaseModel):
     """Response with field definitions for the form"""
     session_id: str
@@ -115,13 +130,20 @@ class ContractCreateResponse(BaseModel):
     contract_name: str
     field_groups: list[ContractFieldGroup]
     field_values: dict[str, str] = {}
+    legal_references: list[LegalReference] = []
+    disclaimer: str = ""
+    has_default_articles: bool = False
 
 
 class ContractSubmitRequest(BaseModel):
     """Submit all field values (POST) or partial update (PATCH)"""
-    session_id: str
+    session_id: Optional[str] = None
     draft_id: str
     field_values: dict[str, str]
+    legal_references: list[dict] = []
+    articles: list[dict] = []
+    disclaimer: str = ""
+    subtitle: str = ""
 
 
 class ContractSubmitResponse(BaseModel):
@@ -131,6 +153,18 @@ class ContractSubmitResponse(BaseModel):
     message: str
     pdf_url: Optional[str] = None
     field_values: dict[str, str] = {}
+
+
+class GenerateArticlesRequest(BaseModel):
+    """Request to generate contract articles via LLM"""
+    session_id: str
+    draft_id: str
+    field_values: dict[str, str] = {}
+
+
+class GenerateArticlesResponse(BaseModel):
+    """Response with generated articles"""
+    articles: list[ContractArticle] = []
 
 
 class HealthResponse(BaseModel):
